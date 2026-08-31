@@ -118,6 +118,7 @@ The negative assertion that two owners running identical code do not share an is
 A fixed host-side timeout races the sandbox call and returns a timeout failure, which stops the waiting and does not claim to have stopped the isolate.
 The boundary is `globalOutbound` plus the absent `env`, and not the module map.
 The virtual module is a grant list rather than a boundary: `node:` builtins are reachable, rejecting the specifier statically is defeated by a computed dynamic import, and `LOADER.get` offers no way to deny them.
+That costs nothing, because the three ways out of an isolate turn out to be three ways of asking one gate, and `globalOutbound: null` closes it.
 The residual, stated so nobody later assumes otherwise: the sandbox can compute anything, read `node:` builtins and burn CPU; it cannot reach the parent environment, and it cannot reach the network except through the seam.
 
 **Environment configuration arrives through the bindings interface**, the upstream's base URL included, so the deployed worker contains no test-only code path and the difference between local and production is visible in configuration rather than in a conditional.
@@ -136,8 +137,10 @@ Then the MCP surface and `search`, then the runner and the virtual module builde
 **Still open, and how each closes.**
 
 1. Whether anything reaches the network without passing `globalOutbound`.
-   With `globalOutbound: null`, `fetch`, `cloudflare:sockets` `connect()` and `node:net.createConnection` must all fail to reach the network.
-   If one escapes, Slice 1 stops: the credential boundary cannot be built where the spec puts it, and Slice 2 has no floor under it.
+   Answered locally on 2026-08-31 in `packages/server/test/worker/sandbox-egress.test.ts`, and the answer is that nothing does.
+   With `globalOutbound: null`, `fetch`, `cloudflare:sockets` `connect()` and `node:net.createConnection` are refused by workerd with one message, and a listener on the other side records no connection.
+   The same three paths reach that listener when outbound is granted, which is the control that makes the denial mean something.
+   What remains is running the same file against Cloudflare's loader rather than miniflare's, which happens at the deploy step alongside the runaway experiment.
 
 2. Whether a runaway kills the invocation or the host.
    That is the question, and not whether `cpuMs` bounds a busy loop.

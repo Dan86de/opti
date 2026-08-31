@@ -104,4 +104,10 @@ Until something bounds it, the runaway backstop cannot be `limits` alone.
 
 **The sandbox can import `node:` builtins** even when the loaded worker declares no compatibility flags.
 What the sandbox can reach is therefore wider than the module map.
-If that is to be narrowed, narrowing it is work, not a default.
+It is not narrowed, and per the Slice 1 decisions it does not need to be, because of the finding below.
+
+**`globalOutbound: null` closes every way out at once.**
+Established on 2026-08-31 in `packages/server/test/worker/sandbox-egress.test.ts`.
+`fetch`, `cloudflare:sockets` `connect()` and `node:net.createConnection` are all refused with the same workerd message, and a listener on the other side records no connection; all three reach that listener when outbound is granted.
+So the boundary is `globalOutbound` plus the absent `env`, the virtual module is a grant list rather than a boundary, and `node:` reachability is a fact to record rather than a hole to plug.
+The test carries its own control on purpose: without something reachable to not reach, an egress test passes in an environment that has no network and proves nothing.

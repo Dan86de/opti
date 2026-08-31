@@ -17,5 +17,9 @@ export default defineProject({
   test: {
     name: "workers",
     include: ["test/worker/**/*.test.ts"],
+    // The egress test asserts that nothing leaves the sandbox except through
+    // `globalOutbound`, which is only evidence if something reachable is there
+    // to not be reached. This starts it, in node, once for the run.
+    globalSetup: ["./test/worker/support/listener.ts"],
   },
 });
