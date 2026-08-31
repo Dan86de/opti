@@ -118,7 +118,15 @@ const SandboxReport = Schema.Union([
   }),
   Schema.Struct({
     ok: Schema.Literal(false),
-    error: Schema.Struct({ tag: Schema.String, message: Schema.String }),
+    // retry and action are what Slice 2's denials travel as: a boundary that
+    // flattened them would delete the approval link and the classification.
+    // Both optional, because an absent field means the boring default.
+    error: Schema.Struct({
+      tag: Schema.String,
+      message: Schema.String,
+      retry: Schema.optionalKey(Schema.Literals(["now", "after", "never"])),
+      action: Schema.optionalKey(Schema.Struct({ kind: Schema.String, url: Schema.String })),
+    }),
     logs: Schema.Array(Schema.String),
   }),
 ]);
@@ -156,11 +164,22 @@ const boundedLogs = (logs: readonly string[]): readonly string[] => {
  * A failure reported by the sandbox keeps the tag the thrown value carried -
  * the boundary must not flatten what went wrong - and brings the run's logs
  * home with it, because a failure without its output is not debuggable.
+ * A retry classification or an action the thrown value carried ride along for
+ * the same reason: a gateway denial without its approval link is useless.
  */
-const sandboxFailure = (tag: string, message: string, logs: readonly string[]): Failure.OptiError => ({
-  _tag: tag,
-  message,
-  retry: "never",
+const sandboxFailure = (
+  error: {
+    readonly tag: string;
+    readonly message: string;
+    readonly retry?: Failure.Retry;
+    readonly action?: Failure.Action;
+  },
+  logs: readonly string[],
+): Failure.OptiError => ({
+  _tag: error.tag,
+  message: error.message,
+  retry: error.retry ?? "never",
+  ...(error.action === undefined ? {} : { action: error.action }),
   ...(logs.length === 0 ? {} : { logs: boundedLogs(logs) }),
 });
 
@@ -212,7 +231,7 @@ export const run = (
     );
 
     if (!report.ok) {
-      return yield* Effect.fail(sandboxFailure(report.error.tag, report.error.message, report.logs));
+      return yield* Effect.fail(sandboxFailure(report.error, report.logs));
     }
 
     const size = JSON.stringify(report.value)?.length ?? 0;
@@ -221,8 +240,10 @@ export const run = (
       // over a result that quietly lost its tail is confidently wrong.
       return yield* Effect.fail(
         sandboxFailure(
-          "ResultTooLarge",
-          `the result is ${size} bytes and the ceiling is ${RESULT_CEILING_BYTES}. Return less, or return a summary.`,
+          {
+            tag: "ResultTooLarge",
+            message: `the result is ${size} bytes and the ceiling is ${RESULT_CEILING_BYTES}. Return less, or return a summary.`,
+          },
           report.logs,
         ),
       );

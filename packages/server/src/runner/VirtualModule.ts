@@ -43,6 +43,21 @@ const readMessage = (thrown) =>
     ? thrown.message
     : String(thrown);
 
+const readRetry = (thrown) =>
+  thrown !== null && typeof thrown === "object" && (thrown.retry === "now" || thrown.retry === "after")
+    ? thrown.retry
+    : undefined;
+
+const readAction = (thrown) =>
+  thrown !== null &&
+  typeof thrown === "object" &&
+  thrown.action !== null &&
+  typeof thrown.action === "object" &&
+  typeof thrown.action.kind === "string" &&
+  typeof thrown.action.url === "string"
+    ? { kind: thrown.action.kind, url: thrown.action.url }
+    : undefined;
+
 const show = (value) => {
   if (typeof value === "string") return value;
   try {
@@ -64,14 +79,24 @@ export default {
 
     const report = (body) =>
       new Response(body, { headers: { "content-type": "application/json" } });
-    const failure = (tag, message) =>
-      report(JSON.stringify({ ok: false, error: { tag, message }, logs }));
+    // retry and action ride along when the thrown value carried them, so the
+    // boundary does not flatten a denial into a bare message. Absent means the
+    // boring default - never retry, nothing for a human to do.
+    const failure = (tag, message, thrown) => {
+      const retry = readRetry(thrown);
+      const action = readAction(thrown);
+      return report(JSON.stringify({
+        ok: false,
+        error: Object.assign({ tag, message }, retry && { retry }, action && { action }),
+        logs,
+      }));
+    };
 
     let submitted;
     try {
       submitted = await import("./submitted.js");
     } catch (thrown) {
-      return failure(readTag(thrown), "the module could not be loaded: " + readMessage(thrown));
+      return failure(readTag(thrown), "the module could not be loaded: " + readMessage(thrown), thrown);
     }
     if (typeof submitted.default !== "function") {
       return failure("NoDefaultExport", "the module must default-export an async function");
@@ -85,7 +110,7 @@ export default {
       }
       return report('{"ok":true,"value":' + serialized + ',"logs":' + JSON.stringify(logs) + "}");
     } catch (thrown) {
-      return failure(readTag(thrown), readMessage(thrown));
+      return failure(readTag(thrown), readMessage(thrown), thrown);
     }
   },
 };

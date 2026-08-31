@@ -65,6 +65,50 @@ describe("what goes wrong inside the module", () => {
     });
   });
 
+  it("carries a retry classification and an action across the boundary intact", async () => {
+    const { accessToken } = await mintAccessToken();
+
+    // The shape a Slice 2 gateway denial travels in: the capability wrapper
+    // throws it inside the sandbox, and the approval link and the retry
+    // classification must survive to the envelope, because a boundary that
+    // flattens them deletes exactly what the denial exists to deliver.
+    const result = await execute(
+      accessToken,
+      `export default async () => {
+         throw {
+           _tag: "HostNotApproved",
+           message: "api.example is not approved for credential todoist",
+           retry: "never",
+           action: { kind: "approve-host", url: "https://opti.test/approve?credential=todoist&host=api.example" },
+         };
+       };`,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      ok: false,
+      error: {
+        tag: "HostNotApproved",
+        retry: "never",
+        action: { kind: "approve-host", url: "https://opti.test/approve?credential=todoist&host=api.example" },
+      },
+    });
+  });
+
+  it("keeps a retry of after when the thrown value said so", async () => {
+    const { accessToken } = await mintAccessToken();
+
+    const result = await execute(
+      accessToken,
+      `export default async () => { throw { _tag: "FetchBudgetExhausted", message: "resets at midnight UTC", retry: "after" }; };`,
+    );
+
+    expect(result.structuredContent).toMatchObject({
+      ok: false,
+      error: { tag: "FetchBudgetExhausted", retry: "after" },
+    });
+  });
+
   it("names a plain Error by its name, not by Unexpected", async () => {
     const { accessToken } = await mintAccessToken();
 
