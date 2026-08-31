@@ -145,7 +145,7 @@ An entry appearing in the production value is an alarm, not a feature.
 ## The owner store and the publish pipeline: what Slice 3 established
 
 Established on 2026-08-31, locally, across `store.test.ts`, `storage.test.ts`, `records.test.ts` and `packages.test.ts`.
-The same claims must be probed once against the deployed worker before they are about production; local and production have disagreed before.
+Probed on production the same day, through a real MCP host driving the deployed worker: the published `todoist` package ran through its `opti:packages` import, storage crossed two fresh isolates, and a swallowed denial was reconstructed from its record's trail - after the `__filename` disagreement below cost the first deployed publish.
 
 **The trail is buffered in the owner store, not on the gateway instance - a recorded deviation from the interview's wording.**
 The interview said "the per-run gateway instance buffers the trail", but workerd builds a fresh `WorkerEntrypoint` instance per call, so there is no per-run instance to buffer on.

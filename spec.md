@@ -283,6 +283,10 @@ Run records for every execution, written to owner-local storage and never as a s
 **Done when.**
 "That worked, save it as todoist", and then in a brand new conversation "what are my todos" finds the package instead of starting over.
 And a failure is debuggable from its run record alone, without adding a log line and reproducing it.
+Done on 2026-08-31 against the deployed worker, through two real MCP hosts.
+A run listing live Todoist tasks was saved as `todoist` and published from one host - after the first deployed publish died on the bundled compiler's `__filename`, a local/production disagreement recorded in the repository instructions - and a second host found the package ranked above the primitives and ran it through `opti:packages/todoist`, returning the real tasks with the credential substituted outside the isolate.
+The debuggability half was proved the same day: a run that swallowed a denial into "sync failed" was explained from its record alone, whose trail named the host, the 403 and the `UnknownCredential` denial, with no re-run and no added log line.
+Storage was probed across two fresh production isolates, and a value crossed between them through the owner store.
 
 **Proves.**
 Discovery, run records, the source primitive, publish and activation, and that the loop closes.
