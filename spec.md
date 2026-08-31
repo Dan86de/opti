@@ -262,6 +262,8 @@ The credential is a Todoist API token named `todoist`, because Todoist is in the
 Automated tests never touch Todoist: the listener double from the egress tests plays the API host, which is what lets the tests assert the request that never arrived and the value the isolate never saw.
 The deny-approve-succeed sequence runs end to end against the double, because approval is an admin route the tests can call with the operator token.
 The double proves the gateway, not that Todoist accepts the result; the real round trip is verified by hand, once, like Slice 1's authorize flow.
+Done on 2026-08-31 against the deployed worker and the live Todoist API, through a real MCP host: the denial arrived typed with its approval link, the agent stopped and handed it over, the host was approved from the terminal, and the same module then returned real projects with the value substituted outside the isolate.
+The live API also corrected the worked example: the REST v2 endpoints answer 410 now, everything goes through `/api/v1/`, and v1 responses are paginated as `{ results, next_cursor }` rather than a bare array.
 
 **Build order inside the slice.**
 The seam test first: a worker test that sandbox fetch arrives at the gateway entrypoint with host-set props intact, that two runs do not bleed, and that nothing else reaches the network - then immediately a deployed probe of the same, because local and production have disagreed before.

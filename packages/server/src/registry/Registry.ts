@@ -70,6 +70,10 @@ export const fetchCapability: Capability = {
   importLine: 'import { fetch } from "opti:capabilities";',
   errorTags: ["UnknownCredential", "HostNotApproved", "InsecureTransport", "OwnOriginRefused", "FetchBudgetExhausted"],
   example: {
+    // The endpoint is the unified /api/v1/ surface: the old REST v2 paths
+    // answer 410 since 2026, observed against the live API on 2026-08-31,
+    // and v1 responses are paginated ({ results, next_cursor }) rather than
+    // a bare array.
     code:
       'import { fetch } from "opti:capabilities";\n' +
       "\n" +
@@ -77,9 +81,10 @@ export const fetchCapability: Capability = {
       "// substituted outside the sandbox and this code never holds it.\n" +
       "export default async () => {\n" +
       "  try {\n" +
-      '    const response = await fetch("https://api.todoist.com/rest/v2/projects", {\n' +
+      '    const response = await fetch("https://api.todoist.com/api/v1/projects", {\n' +
       '      headers: { authorization: "Bearer {{credential:todoist}}" },\n' +
       "    });\n" +
+      "    // v1 responses are paginated: { results, next_cursor }.\n" +
       "    return { status: response.status };\n" +
       "  } catch (denial) {\n" +
       "    // A denial is typed and never worth retrying. Stop and hand the\n" +
