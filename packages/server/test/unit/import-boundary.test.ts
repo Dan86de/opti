@@ -30,6 +30,55 @@ const files = sourceFiles(SRC).map((path) => ({
   text: readFileSync(path, "utf8"),
 }));
 
+describe("the layering rule", () => {
+  it("keeps every built-in capability's sandbox code free of opti:packages", async () => {
+    // A capability never imports a package: shipped code must not depend on
+    // owner-mutable code, or an edit to a package could change what a
+    // primitive means. The threat is our own mistake, so the enforcement is
+    // a scan over the built-in sources - and the virtual module builder
+    // refuses the same thing at build time.
+    const { builtIns } = await import("../../src/registry/Registry.ts");
+
+    for (const capability of builtIns) {
+      expect(capability.code, `capability ${capability.name}`).not.toContain("opti:packages");
+    }
+  });
+});
+
+describe("the owner store write paths", () => {
+  // The store's own files delegate to their storage-level modules, so they
+  // are the definition side here, the way the vault is in its tests below.
+  const outsideStore = files.filter((file) => !file.path.startsWith("store/"));
+
+  const callersOf = (writeCall: RegExp): string[] =>
+    outsideStore
+      .filter((file) => writeCall.test(file.text))
+      .map((file) => file.path)
+      .sort();
+
+  it("lets only the gateway drive storage writes and the trail", () => {
+    // The gateway's internal route is the only way sandbox traffic reaches
+    // the store, and nothing on the host side writes storage on its own.
+    expect(callersOf(/\.(storageSet|storageDelete)\(/)).toStrictEqual(["gateway/Internal.ts"]);
+    // The trail is the gateway's own account of what left, one line per
+    // request; nothing else may write history into it.
+    expect(callersOf(/\.appendTrail\(/)).toStrictEqual(["gateway/Gateway.ts"]);
+  });
+
+  it("lets only the execute path write run records", () => {
+    expect(callersOf(/\.putRecord\(/)).toStrictEqual(["runner/Execute.ts"]);
+  });
+
+  it("lets only the packages tool drive the package write paths", () => {
+    // Package state changes only through the lifecycle tool: no capability,
+    // no sandboxed code, no other surface can mutate what publishes.
+    expect(callersOf(/\.(createPackage|editPackageFile|editPackageManifest|commitPublish)\(/)).toStrictEqual([
+      "packages/Packages.ts",
+      "packages/Publish.ts",
+    ]);
+  });
+});
+
 describe("the vault write paths", () => {
   it("keeps the storage-level write modules inside the vault", () => {
     // HostPolicy and CredentialStore hold the write functions themselves.

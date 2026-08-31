@@ -18,15 +18,18 @@ import * as Authorize from "./http/Authorize.ts";
 import { Owner, type Upstream } from "./identity/index.ts";
 import { Envelope, type Failure } from "./kernel/index.ts";
 import * as Transport from "./mcp/Transport.ts";
+import * as Packages from "./packages/Packages.ts";
 import * as Registry from "./registry/Registry.ts";
 import * as Execute from "./runner/Execute.ts";
+import { storeFor } from "./store/OwnerStore.ts";
 import { vaultFor } from "./vault/OwnerVault.ts";
 
 // The seam. `globalOutbound` accepts only a Fetcher, so the gateway is a
 // WorkerEntrypoint on the main module, reached through `ctx.exports` with
 // props the host seals at isolate creation.
 export { Gateway } from "./gateway/Gateway.ts";
-
+// The owner store, one per owner: run records, package state, storage data.
+export { OwnerStore } from "./store/OwnerStore.ts";
 // The owner vault, one per owner: credentials, host policy, daily counters.
 export { OwnerVault } from "./vault/OwnerVault.ts";
 
@@ -43,6 +46,7 @@ export interface Bindings
     Authorize.AuthorizeBindings,
     Execute.ExecuteBindings,
     Gateway.GatewayBindings,
+    Packages.PackagesBindings,
     Admin.AdminBindings {}
 
 /** Where the MCP surface will live. Everything under it needs a valid token. */
@@ -122,18 +126,24 @@ const apiHandler = {
 
     // Tools are built here, at the door, per request: each handler is bound to
     // this owner and these bindings, so the transport never sees either.
-    // Slice 1 resolves the same built-ins for every owner; the per-owner half
-    // of the registry arrives with packages in Slice 3.
     const ownerId = owner.value;
     const origin = new URL(request.url).origin;
     // Lazy on purpose: search only pays the vault read on the two responses
-    // that carry credentials - detail for fetch, and the empty result.
+    // that carry credentials - detail for fetch, and the empty result - and
+    // pays the store read only when it actually runs.
     const credentials = Effect.promise(async () => await vaultFor(bindings.OWNER_VAULT, ownerId).listCredentials());
+    const entries = Effect.promise(
+      async (): Promise<readonly Registry.Entry[]> => [
+        ...(await storeFor(bindings.OWNER_STORE, ownerId).listPublished()).map(Registry.packageEntry),
+        ...Registry.builtIns,
+      ],
+    );
     const tools: readonly Transport.ServedTool[] = [
-      Transport.serve(Search.tool, (input) => Search.run(Registry.builtIns, credentials, input)),
+      Transport.serve(Search.tool, (input) => Search.run(entries, credentials, input)),
       Transport.serve(Execute.tool, (input) =>
         Execute.run(bindings, { ownerId, origin, gateway: ctx.exports.Gateway }, input),
       ),
+      Transport.serve(Packages.tool, (input) => Packages.run(bindings, { ownerId }, input)),
     ];
 
     return Effect.runPromise(Transport.handle(request, tools));

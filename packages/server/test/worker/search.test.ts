@@ -49,6 +49,8 @@ describe("search", () => {
             name: "fetch",
             signature: "fetch(input: string | Request, init?: RequestInit): Promise<Response>",
           },
+          { kind: "capability", name: "runs" },
+          { kind: "capability", name: "storage" },
         ],
       },
     });
