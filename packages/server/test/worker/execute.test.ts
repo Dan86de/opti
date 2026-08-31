@@ -13,33 +13,13 @@
  * Cloudflare's loader at the deploy step before the boundary claims are about
  * production.
  */
-import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import type { Envelope } from "../../src/kernel/index.ts";
 import { add } from "../../src/registry/Registry.ts";
 import { LISTENER_ORIGIN } from "./support/listener-address.ts";
+import { callTool, rpc } from "./support/mcp.ts";
 import { mintAccessToken } from "./support/token.ts";
 
-const ORIGIN = "https://opti.test";
-
-interface CallResult {
-  content: { type: string; text: string }[];
-  structuredContent: Envelope.Envelope<unknown>;
-  isError?: boolean;
-}
-
-const rpc = async (accessToken: string, method: string, params: unknown) => {
-  const response = await SELF.fetch(`${ORIGIN}/mcp`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-  });
-  expect(response.status).toBe(200);
-  return ((await response.json()) as { result: unknown }).result;
-};
-
-const execute = async (accessToken: string, code: string) =>
-  (await rpc(accessToken, "tools/call", { name: "execute", arguments: { code } })) as CallResult;
+const execute = (accessToken: string, code: string) => callTool(accessToken, "execute", { code });
 
 describe("the walking skeleton", () => {
   it("runs the worked example search hands out, and gets its answer", async () => {

@@ -6,37 +6,15 @@
  * response each have a 2KB ceiling, signatures arrive as TypeScript rather
  * than JSON Schema, and error tags appear in detail only.
  */
-import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import type { Envelope } from "../../src/kernel/index.ts";
+import { callTool, rpc } from "./support/mcp.ts";
 import { mintAccessToken } from "./support/token.ts";
-
-const ORIGIN = "https://opti.test";
-
-const rpc = async (accessToken: string, method: string, params: unknown) => {
-  const response = await SELF.fetch(`${ORIGIN}/mcp`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-  });
-  expect(response.status).toBe(200);
-  return ((await response.json()) as { result: unknown }).result;
-};
 
 interface ToolsList {
   tools: { name: string; description: string; inputSchema: unknown }[];
 }
 
-interface CallResult {
-  content: { type: string; text: string }[];
-  structuredContent: Envelope.Envelope<unknown>;
-  isError?: boolean;
-}
-
-const search = async (accessToken: string, args: unknown) => {
-  const result = (await rpc(accessToken, "tools/call", { name: "search", arguments: args })) as CallResult;
-  return result;
-};
+const search = (accessToken: string, args: unknown) => callTool(accessToken, "search", args);
 
 /** The ceiling is on what enters the model's context, byte-counted encoded. */
 const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
