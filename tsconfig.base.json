@@ -1,0 +1,34 @@
+{
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023"],
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    // Effect 4 writes explicit .ts extensions in its own source and we follow it.
+    // Safe here because nothing in this repo emits through tsc.
+    "allowImportingTsExtensions": true,
+
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noPropertyAccessFromIndexSignature": true,
+
+    "skipLibCheck": true,
+    "noEmit": true,
+
+    // Effect-specific diagnostics in the editor. The same rules run in CI via
+    // the effect-tsgo binary, so an editor warning and a CI failure agree.
+    "plugins": [{ "name": "@effect/language-service" }]
+  },
+  // repos/ is vendored upstream source. It is reference material for humans and
+  // agents, never part of our program.
+  "exclude": ["node_modules", "dist", "repos"]
+}

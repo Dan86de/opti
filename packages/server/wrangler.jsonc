@@ -1,0 +1,15 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "opti",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-31",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+
+  // The isolate. Worker Loader is open beta on the paid plan and is the most
+  // load-bearing dependency in the system, which is why it is a recorded bet
+  // with its own revisit trigger rather than an assumption.
+  "worker_loaders": [{ "binding": "LOADER" }]
+}

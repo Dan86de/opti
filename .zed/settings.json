@@ -1,0 +1,64 @@
+{
+  // repos/ is vendored upstream source, committed on purpose as reference
+  // material. Hiding it keeps it out of search, file watching and auto-imports.
+  // Coding agents read it regardless - this setting only affects the editor.
+  // Zed replaces the defaults when this key is set, so they are repeated here.
+  "file_scan_exclusions": [
+    "**/.git",
+    "**/.svn",
+    "**/.hg",
+    "**/.jj",
+    "**/CVS",
+    "**/.DS_Store",
+    "**/Thumbs.db",
+    "**/.classpath",
+    "**/.settings",
+    "**/node_modules",
+    "**/.wrangler",
+    "repos",
+    // pnpm 12 writes a multi-document lockfile (a supply-chain attestation
+    // document, then the lockfile). Zed's YAML server only parses the first
+    // one and reports MULTIPLE_DOCS on the separator. It is generated and
+    // never hand-edited, so keep the editor out of it.
+    "**/pnpm-lock.yaml"
+  ],
+  "languages": {
+    "TypeScript": {
+      // effect-tsgo replaces the default TypeScript server rather than running
+      // alongside it; without the exclusions you get duplicate diagnostics.
+      "language_servers": ["effect-tsgo", "biome", "!vtsls", "!typescript-language-server"],
+      "format_on_save": "on",
+      "formatter": [
+        { "code_action": "source.organizeImports.biome" },
+        { "code_action": "source.fixAll.biome" },
+        { "language_server": { "name": "biome" } }
+      ]
+    },
+    "TSX": {
+      "language_servers": ["effect-tsgo", "biome", "!vtsls", "!typescript-language-server"],
+      "format_on_save": "on",
+      "formatter": [
+        { "code_action": "source.organizeImports.biome" },
+        { "code_action": "source.fixAll.biome" },
+        { "language_server": { "name": "biome" } }
+      ]
+    },
+    "JSON": {
+      "format_on_save": "on",
+      "formatter": { "language_server": { "name": "biome" } }
+    },
+    "JSONC": {
+      "format_on_save": "on",
+      "formatter": { "language_server": { "name": "biome" } }
+    }
+  },
+  "lsp": {
+    "effect-tsgo": {
+      // Use the workspace copy rather than a pinned or floating download, so
+      // the editor and `pnpm typecheck` in CI run the identical binary.
+      "binary": {
+        "path": "node_modules/.bin/effect-tsgo"
+      }
+    }
+  }
+}

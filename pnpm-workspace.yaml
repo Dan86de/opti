@@ -1,0 +1,19 @@
+packages:
+  - "packages/*"
+  # repos/ holds vendored upstream source as read-only reference material.
+  # Several of those repos are themselves pnpm workspaces; without this
+  # exclusion pnpm would try to link their packages as members of ours.
+  - "!repos/**"
+
+# Keep the toolchain pinned in one place.
+catalog:
+  effect: 4.0.0-rc.112
+
+# pnpm 12 refuses to run dependency build scripts unless they are allowed here,
+# and it fails the install rather than warning - so CI needs this too.
+# workerd's postinstall places the platform binary; without it the Workers
+# vitest pool has no runtime to start.
+allowBuilds:
+  esbuild: true
+  msgpackr-extract: true
+  workerd: true

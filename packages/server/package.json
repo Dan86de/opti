@@ -1,0 +1,20 @@
+{
+  "name": "@opti/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit -p tsconfig.json && effect-tsgo diagnostics --project tsconfig.json --format text --strict",
+    "cf-typegen": "wrangler types"
+  },
+  "dependencies": {
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.1.2",
+    "@types/node": "^26.4.0",
+    "wrangler": "4.127.1"
+  }
+}
