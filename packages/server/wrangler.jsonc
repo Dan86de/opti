@@ -15,6 +15,23 @@
   // with its own revisit trigger rather than an assumption.
   "worker_loaders": [{ "binding": "LOADER" }],
 
+  // The in-worker compiler (in-worker-typescript, the publish pipeline)
+  // probes bare Node builtins while its module initializes. These shims make
+  // that init deterministic instead of depending on whatever workerd's
+  // nodejs_compat stubs happen to do; vitest.workers.config.ts carries the
+  // same map for the test pool, so local and production agree by
+  // construction. The publish compile itself is virtual and touches none of
+  // them. Only bare specifiers are remapped: `node:`-prefixed imports still
+  // reach the real compat modules.
+  "alias": {
+    "fs": "./src/publish/node-shims/fs.ts",
+    "os": "./src/publish/node-shims/os.ts",
+    "path": "./src/publish/node-shims/path.ts",
+    "perf_hooks": "./src/publish/node-shims/perf_hooks.ts",
+    "inspector": "./src/publish/node-shims/inspector.ts",
+    "crypto": "./src/publish/node-shims/crypto.ts"
+  },
+
   // The upstream login's public endpoints. Vars rather than secrets because
   // they are neither: they are the two GitHub origins, and having them arrive
   // through the door is what lets a doubled upstream be reached the same way
@@ -48,12 +65,19 @@
     }
   ],
 
-  // The owner vault: one durable object per owner, holding the credential
-  // store, the host policy and the daily counters. The first durable object
-  // in the system, which is what makes the deployment-split trigger live -
-  // a deploy of this script restarts these objects.
+  // Two durable objects per owner. The vault holds the credential store, the
+  // host policy and the daily counters - the secrets object. The store holds
+  // run records, package state and storage data - the work object. Separate
+  // classes so the busiest surface has no call path into the most sensitive
+  // one. A deploy of this script restarts both; neither keeps memory state.
   "durable_objects": {
-    "bindings": [{ "name": "OWNER_VAULT", "class_name": "OwnerVault" }]
+    "bindings": [
+      { "name": "OWNER_VAULT", "class_name": "OwnerVault" },
+      { "name": "OWNER_STORE", "class_name": "OwnerStore" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["OwnerVault"] }]
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["OwnerVault"] },
+    { "tag": "v2", "new_sqlite_classes": ["OwnerStore"] }
+  ]
 }
