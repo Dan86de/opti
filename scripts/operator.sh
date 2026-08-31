@@ -24,7 +24,9 @@ usage() {
   exit 64
 }
 
-: "${OPTI_ORIGIN:?set OPTI_ORIGIN to the worker's origin, e.g. https://opti.example}"
+# No apostrophes in these messages: inside ${var:?message} bash treats a
+# single quote as a quote character even within double quotes.
+: "${OPTI_ORIGIN:?set OPTI_ORIGIN to the origin of the worker, e.g. https://opti.example}"
 : "${OPTI_OPERATOR_TOKEN:?set OPTI_OPERATOR_TOKEN to the operator token}"
 
 command="${1:-}"
