@@ -419,6 +419,12 @@ None.
 The repository is empty, so these are the first tests and they become the prior art.
 The one convention to establish deliberately on the first commit: negative assertions name what must not have happened, so a later reader can see the invariant rather than infer it.
 
+**Cloudflare Code Mode, considered on 2026-08-31 and not adopted.**
+`@cloudflare/codemode` ships the same architecture this spec chose: search plus execute, model-written code in a fresh Worker Loader isolate, egress blocked by default, intermediate results kept out of model context.
+That convergence is treated as validation of the bet, not as a reason to adopt the library.
+It was declined because its sandbox reaches the world only through tool RPCs back to the host, while Slice 2's settled boundary is raw `fetch` routed through our gateway with placeholder substitution; because the generated entry module would own the failure encoding the envelope contract requires us to own; and because its wrappers want an upstream MCP server or an OpenAPI document, which OPTI's own registry is not.
+Revisit if Slice 3 finds us rebuilding Code Mode piece by piece, or if it grows credential and storage primitives that match the Slice 2 and 3 designs.
+
 ## Out of Scope
 
 - Any web application.
