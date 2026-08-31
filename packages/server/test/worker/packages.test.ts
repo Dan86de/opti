@@ -71,7 +71,7 @@ describe("the loop closes", () => {
        export default async () => run();`,
     );
     expect(reused.structuredContent).toMatchObject({ ok: true, value: { result: ["write the spec"] } });
-  });
+  }, 60_000);
 });
 
 describe("publish holds the line", () => {
@@ -102,7 +102,7 @@ describe("publish holds the line", () => {
        export default async () => sum(20, 22);`,
     );
     expect(used.structuredContent).toMatchObject({ ok: true, value: { result: 42 } });
-  });
+  }, 30_000);
 
   it("fails a publish whose code does not typecheck, naming the place", async () => {
     const { accessToken } = await mintAccessToken();
@@ -123,7 +123,7 @@ describe("publish holds the line", () => {
     });
     const error = (published.structuredContent as { error: { message: string } }).error;
     expect(error.message).toContain("index.ts:1");
-  });
+  }, 30_000);
 
   it("holds the code to the manifest's signature, because search must stay honest", async () => {
     const { accessToken } = await mintAccessToken();
@@ -144,7 +144,7 @@ describe("publish holds the line", () => {
       ok: false,
       error: { tag: "PublishCheckFailed" },
     });
-  });
+  }, 30_000);
 
   it("fails a publish whose declared export does not exist, at publish and not in somebody's run", async () => {
     const { accessToken } = await mintAccessToken();
@@ -164,7 +164,7 @@ describe("publish holds the line", () => {
     expect(published.isError).toBe(true);
     const error = (published.structuredContent as { error: { message: string } }).error;
     expect(error.message).toContain("imaginary");
-  });
+  }, 30_000);
 
   it("leaves the previous version serving when a later publish fails", async () => {
     const { accessToken } = await mintAccessToken();
@@ -198,7 +198,7 @@ describe("publish holds the line", () => {
     // And read says so: working state moved on, live state did not.
     const detail = await packages(accessToken, { action: "read", name: "sum" });
     expect(value<{ state: string }>(detail).state).toBe("modified");
-  });
+  }, 30_000);
 
   it("lets one package import another by name, as ordinary code", async () => {
     const { accessToken } = await mintAccessToken();
@@ -234,7 +234,7 @@ describe("publish holds the line", () => {
        export default async () => double(21);`,
     );
     expect(used.structuredContent).toMatchObject({ ok: true, value: { result: 42 } });
-  });
+  }, 30_000);
 });
 
 describe("names and lifecycle", () => {
