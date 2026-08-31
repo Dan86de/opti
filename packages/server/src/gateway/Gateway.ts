@@ -20,6 +20,7 @@
  */
 import { WorkerEntrypoint } from "cloudflare:workers";
 import type { Owner } from "../identity/index.ts";
+import { type OwnerStore, storeFor } from "../store/OwnerStore.ts";
 import { type OwnerVault, vaultFor } from "../vault/OwnerVault.ts";
 import {
   denialResponse,
@@ -30,6 +31,7 @@ import {
   UnknownCredential,
 } from "./Denial.ts";
 import { exemptFromSecureTransport, isSecureTransport } from "./Hosts.ts";
+import { handleInternal, INTERNAL_HOST, type Routed } from "./Internal.ts";
 import { scan, substitute } from "./Placeholder.ts";
 
 /**
@@ -45,6 +47,7 @@ export interface GatewayProps {
 
 export interface GatewayBindings {
   readonly OWNER_VAULT: DurableObjectNamespace<OwnerVault>;
+  readonly OWNER_STORE: DurableObjectNamespace<OwnerStore>;
   /** The daily outbound ceiling, through the door like every number. */
   readonly FETCH_BUDGET: string;
   /** Hosts exempt from the https rule. Empty in production, always. */
@@ -89,26 +92,62 @@ const hostNotApproved = (origin: string, host: string, names: readonly string[])
 };
 
 export class Gateway extends WorkerEntrypoint<GatewayBindings, GatewayProps> {
+  /**
+   * Every request leaves one trail line - method, host, status, duration,
+   * denials included, never bodies and never values - which is what makes a
+   * failure debuggable from its run record alone. The line is buffered in
+   * the owner store keyed by the run id from the props, not on this
+   * instance: workerd builds a fresh entrypoint instance per call, so the
+   * interview's "the per-run gateway instance buffers the trail" has no
+   * instance to buffer on, and the record write consumes the buffer instead.
+   */
   override async fetch(request: Request): Promise<Response> {
+    const started = Date.now();
+    const { response, denied } = await this.route(request);
+    try {
+      await storeFor(this.env.OWNER_STORE, this.ctx.props.ownerId).appendTrail(this.ctx.props.runId, {
+        method: request.method,
+        host: new URL(request.url).hostname.toLowerCase(),
+        status: response.status,
+        durationMs: Date.now() - started,
+        ...(denied === undefined ? {} : { denied }),
+      });
+    } catch {
+      // A trail line we cannot write must not fail the fetch it describes;
+      // the gap shows as a missing line, never as a broken run.
+    }
+    return response;
+  }
+
+  private async route(request: Request): Promise<Routed> {
     const { ownerId, origin } = this.ctx.props;
     const vault = vaultFor(this.env.OWNER_VAULT, ownerId);
 
-    // Counted first, denials included: a loop hammering denials is still a
-    // runaway, and the ceiling under it is the point of the counter.
+    // Counted first, denials and internal calls included: a loop hammering
+    // either is still a runaway, and the ceiling under it is the point.
     const budget = await vault.countFetch(Number(this.env.FETCH_BUDGET));
     if (budget.exhausted) {
-      return denialResponse(budgetExhausted(budget.resetsAt), 429);
+      const exhausted = budgetExhausted(budget.resetsAt);
+      return { response: denialResponse(exhausted, 429), denied: exhausted._tag };
     }
 
     const target = new URL(request.url);
 
+    // The reserved hostname: a storage or runs call, routed to the owner's
+    // store instead of the network. Before the placeholder scan on purpose:
+    // a stored value containing placeholder text is data, never a request
+    // for substitution.
+    if (target.hostname.toLowerCase() === INTERNAL_HOST) {
+      return handleInternal(storeFor(this.env.OWNER_STORE, ownerId), request, target.pathname);
+    }
+
     // Hostname rather than origin: `http://` in front of our own host is
     // still our own host, and a scheme game must not slip past the class.
     if (target.hostname.toLowerCase() === new URL(origin).hostname.toLowerCase()) {
-      return denialResponse(
-        new OwnOriginRefused({ message: "the sandbox cannot call the OPTI server it is running inside" }),
-        403,
-      );
+      const refused = new OwnOriginRefused({
+        message: "the sandbox cannot call the OPTI server it is running inside",
+      });
+      return { response: denialResponse(refused, 403), denied: refused._tag };
     }
 
     // The final serialized request, as text: the URL, every header value,
@@ -132,23 +171,23 @@ export class Gateway extends WorkerEntrypoint<GatewayBindings, GatewayProps> {
       // No credential, no policy: requests carrying no credential rely on
       // the platform egress model, per the accepted residual. The request is
       // rebuilt because reading the body consumed it.
-      return fetch(
-        new Request(request.url, {
-          method: request.method,
-          headers: request.headers,
-          redirect: request.redirect,
-          ...(rawBody === null ? {} : { body: rawBody }),
-        }),
-      );
+      return {
+        response: await fetch(
+          new Request(request.url, {
+            method: request.method,
+            headers: request.headers,
+            redirect: request.redirect,
+            ...(rawBody === null ? {} : { body: rawBody }),
+          }),
+        ),
+      };
     }
 
     if (!isSecureTransport(target) && !exemptFromSecureTransport(this.env.GATEWAY_INSECURE_HOSTS, target.hostname)) {
-      return denialResponse(
-        new InsecureTransport({
-          message: `a request naming a credential must be https on the default port; ${target.protocol}//${target.host} is not. The allowlist cannot override this.`,
-        }),
-        403,
-      );
+      const insecure = new InsecureTransport({
+        message: `a request naming a credential must be https on the default port; ${target.protocol}//${target.host} is not. The allowlist cannot override this.`,
+      });
+      return { response: denialResponse(insecure, 403), denied: insecure._tag };
     }
 
     const resolution = await vault.resolveForHost(ownerId, names, target.hostname);
@@ -159,10 +198,9 @@ export class Gateway extends WorkerEntrypoint<GatewayBindings, GatewayProps> {
         .map((entry) => entry.name);
       // An unsaved credential outranks an unapproved host: approving egress
       // for a value that does not exist would grant nothing.
-      return denialResponse(
-        unknown.length > 0 ? unknownCredential(origin, unknown) : hostNotApproved(origin, target.hostname, unapproved),
-        403,
-      );
+      const refusal =
+        unknown.length > 0 ? unknownCredential(origin, unknown) : hostNotApproved(origin, target.hostname, unapproved);
+      return { response: denialResponse(refusal, 403), denied: refusal._tag };
     }
 
     const values = new Map(Object.entries(resolution.values));
@@ -176,6 +214,6 @@ export class Gateway extends WorkerEntrypoint<GatewayBindings, GatewayProps> {
       ...(bodyText === null ? (rawBody === null ? {} : { body: rawBody }) : { body: substitute(bodyText, values) }),
     });
 
-    return fetch(substituted);
+    return { response: await fetch(substituted) };
   }
 }

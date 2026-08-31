@@ -1,8 +1,9 @@
 /**
- * The runner: code, a module map and an owner in; an outcome out.
+ * The runner: code, a module map and an owner in; a report out.
  *
- * One runner sits behind every entry point - `execute` now, schedules and
- * webhooks later - and authorization differs at the door, never in here.
+ * One runner sits behind every entry point - `execute` now, the publish boot
+ * check, schedules and webhooks later - and authorization differs at the
+ * door, never in here.
  *
  * The isolate is named for the owner and the run, because `LOADER.get` caches
  * by name and the obvious warm-start optimisation - naming it after a hash of
@@ -14,13 +15,18 @@
  * races the call instead: it stops the waiting and does not claim to have
  * stopped the isolate.
  *
+ * The report never throws: since Slice 3 every run - failed ones especially -
+ * gets a run record, and a record needs the logs and the phase timings
+ * whichever way the run went. The caller decides what a failure becomes.
+ *
  * The sandbox's report is parsed with `Schema` rather than trusted. A
  * malformed body is likely and a lying one is not, because the code is the
  * owner's own agent writing to the owner.
  */
-import { Data, Effect, Schema } from "effect";
+import { Cause, Data, Effect, Schema } from "effect";
 import type { Owner } from "../identity/index.ts";
-import type { Failure } from "../kernel/index.ts";
+import { Failure } from "../kernel/index.ts";
+import type { PhaseTimings } from "../store/RunRecords.ts";
 import type { ModuleMap } from "./VirtualModule.ts";
 
 export interface RunnerBindings {
@@ -40,15 +46,15 @@ const COMPATIBILITY_DATE = "2026-08-31";
 const LIMITS = { cpuMs: 5_000 };
 
 /**
- * What a run may say. Result and logs return to a model's context, so both
- * are bounded; the asymmetry between the two is deliberate. A result that
- * quietly lost its tail makes a model confidently wrong, so an oversized
- * result is a failure and is never truncated. A run that succeeded should not
- * be failed for being chatty, so oversized logs are truncated with a marker
- * naming what was dropped.
+ * What a run may say into a model's context. The result and the logs are both
+ * bounded; the asymmetry between the two is deliberate. A result that quietly
+ * lost its tail makes a model confidently wrong, so an oversized result is a
+ * failure and is never truncated. A run that succeeded should not be failed
+ * for being chatty, so oversized logs are truncated with a marker naming what
+ * was dropped. The run record applies its own larger log ceiling.
  */
 const RESULT_CEILING_BYTES = 32_768;
-const LOGS_CEILING_BYTES = 8_192;
+export const LOGS_CEILING_BYTES = 8_192;
 
 /** The run did not finish in time. The isolate may still be burning: this
  * failure stops the waiting, it does not claim to have stopped the run. */
@@ -105,18 +111,17 @@ export class MalformedSandboxReport extends Data.TaggedError("MalformedSandboxRe
   readonly retry: Failure.Retry = "never";
 }
 
-/** The run finished, but the result cannot come home whole. */
-export class ResultTooLarge extends Data.TaggedError("ResultTooLarge")<{
-  readonly message: string;
-}> {
-  readonly retry: Failure.Retry = "never";
-}
+const ReportTimings = Schema.Struct({
+  bootMs: Schema.optionalKey(Schema.Finite),
+  executeMs: Schema.optionalKey(Schema.Finite),
+});
 
 const SandboxReport = Schema.Union([
   Schema.Struct({
     ok: Schema.Literal(true),
     value: Schema.Any,
     logs: Schema.Array(Schema.String),
+    timings: Schema.optionalKey(ReportTimings),
   }),
   Schema.Struct({
     ok: Schema.Literal(false),
@@ -130,31 +135,46 @@ const SandboxReport = Schema.Union([
       action: Schema.optionalKey(Schema.Struct({ kind: Schema.String, url: Schema.String })),
     }),
     logs: Schema.Array(Schema.String),
+    timings: Schema.optionalKey(ReportTimings),
   }),
 ]);
 
 const decodeReport = Schema.decodeUnknownEffect(SandboxReport);
 
-/** What `execute` hands back on success. Logs only when there were any. */
-export interface RunOutcome {
-  readonly result: unknown;
-  readonly logs?: readonly string[];
+/** A failure as the report carries it: data, not a class, because it may
+ * have crossed the sandbox boundary as JSON. */
+export interface ReportedFailure {
+  readonly tag: string;
+  readonly message: string;
+  readonly retry: Failure.Retry;
+  readonly action?: Failure.Action;
 }
 
 /**
- * Cut logs to their ceiling from the front, so what survives is the earliest
+ * What one run reports, whichever way it went. The logs are raw: the caller
+ * applies the envelope ceiling and the record ceiling separately, because
+ * 8KB is a context-budget bound and not a truth bound.
+ */
+export interface RunReport {
+  readonly outcome:
+    | { readonly ok: true; readonly result: unknown }
+    | { readonly ok: false; readonly error: ReportedFailure };
+  readonly logs: readonly string[];
+  readonly timings: PhaseTimings;
+}
+
+/**
+ * Cut logs to a ceiling from the front, so what survives is the earliest
  * output - the part that explains how the run got where it got - and the
  * marker names exactly what was dropped.
  */
-const boundedLogs = (logs: readonly string[]): readonly string[] => {
+export const boundedLogs = (logs: readonly string[], ceiling: number): readonly string[] => {
   const kept: string[] = [];
   let spent = 0;
   for (const line of logs) {
     spent += line.length + 2;
-    if (spent > LOGS_CEILING_BYTES) {
-      kept.push(
-        `[${logs.length - kept.length} more log entries dropped: the log ceiling is ${LOGS_CEILING_BYTES} bytes]`,
-      );
+    if (spent > ceiling) {
+      kept.push(`[${logs.length - kept.length} more log entries dropped: the log ceiling is ${ceiling} bytes]`);
       return kept;
     }
     kept.push(line);
@@ -162,39 +182,23 @@ const boundedLogs = (logs: readonly string[]): readonly string[] => {
   return kept;
 };
 
-/**
- * A failure reported by the sandbox keeps the tag the thrown value carried -
- * the boundary must not flatten what went wrong - and brings the run's logs
- * home with it, because a failure without its output is not debuggable.
- * A retry classification or an action the thrown value carried ride along for
- * the same reason: a gateway denial without its approval link is useless.
- */
-const sandboxFailure = (
-  error: {
-    readonly tag: string;
-    readonly message: string;
-    readonly retry?: Failure.Retry;
-    readonly action?: Failure.Action;
-  },
-  logs: readonly string[],
-): Failure.OptiError => ({
-  _tag: error.tag,
-  message: error.message,
-  retry: error.retry ?? "never",
-  ...(error.action === undefined ? {} : { action: error.action }),
-  ...(logs.length === 0 ? {} : { logs: boundedLogs(logs) }),
+const failedReport = (error: ReportedFailure, logs: readonly string[], timings: PhaseTimings): RunReport => ({
+  outcome: { ok: false, error },
+  logs,
+  timings,
 });
 
 export const run = (
   bindings: RunnerBindings,
   ownerId: Owner.OwnerId,
+  runId: string,
   modules: ModuleMap,
-  outboundFor: (runId: string) => Fetcher,
-): Effect.Effect<RunOutcome, Failure.OptiError> =>
+  outbound: Fetcher | null,
+): Effect.Effect<RunReport> =>
   Effect.gen(function* () {
+    const startedAt = Date.now();
     // Named for the owner and the run: no two runs share an isolate, and no
     // two owners can, whatever code they submitted.
-    const runId = crypto.randomUUID();
     const isolateName = `${ownerId}:${runId}`;
 
     const stub = bindings.LOADER.get(isolateName, () => ({
@@ -203,12 +207,13 @@ export const run = (
       modules,
       // The boundary. No env is passed, so there is no parent environment to
       // reach; the outbound Fetcher is the gateway, so fetch, sockets and
-      // node:net all ask one gate, and the gate applies policy.
-      globalOutbound: outboundFor(runId),
+      // node:net all ask one gate, and the gate applies policy. The publish
+      // boot check passes null: its run needs no way out at all.
+      globalOutbound: outbound,
       limits: LIMITS,
     }));
 
-    const response = yield* Effect.tryPromise({
+    const attempt = Effect.tryPromise({
       try: () => stub.getEntrypoint().fetch("https://sandbox.invalid/"),
       catch: rejectionFailure,
     }).pipe(
@@ -222,40 +227,75 @@ export const run = (
               "Repeating the same code cannot help; make it finish sooner.",
           }),
       ),
-    );
-
-    const body = yield* Effect.tryPromise({
-      try: () => response.json(),
-      catch: () => new MalformedSandboxReport({ message: "the sandbox answered with something that was not JSON" }),
-    });
-
-    const report = yield* decodeReport(body).pipe(
-      Effect.mapError(
-        () => new MalformedSandboxReport({ message: "the sandbox answered with something that was not a report" }),
+      Effect.flatMap((response) =>
+        Effect.tryPromise({
+          try: () => response.json(),
+          catch: () => new MalformedSandboxReport({ message: "the sandbox answered with something that was not JSON" }),
+        }),
+      ),
+      Effect.flatMap((body) =>
+        decodeReport(body).pipe(
+          Effect.mapError(
+            () => new MalformedSandboxReport({ message: "the sandbox answered with something that was not a report" }),
+          ),
+        ),
       ),
     );
 
+    const exit = yield* Effect.exit(attempt);
+    const totalMs = Date.now() - startedAt;
+
+    if (exit._tag === "Failure") {
+      // A host-side failure: the run's own logs never arrived, and the only
+      // timing anybody has is the host's.
+      const failure = Failure.toFailure(Cause.squash(exit.cause));
+      return failedReport(
+        {
+          tag: failure.tag,
+          message: failure.message,
+          retry: failure.retry,
+          ...(failure.action === undefined ? {} : { action: failure.action }),
+        },
+        [],
+        { totalMs },
+      );
+    }
+
+    const report = exit.value;
+    const reported = "timings" in report ? report.timings : {};
+    const timings: PhaseTimings = {
+      ...("bootMs" in reported ? { bootMs: reported.bootMs } : {}),
+      ...("executeMs" in reported ? { executeMs: reported.executeMs } : {}),
+      totalMs,
+    };
+
     if (!report.ok) {
-      return yield* Effect.fail(sandboxFailure(report.error, report.logs));
+      return failedReport(
+        {
+          tag: report.error.tag,
+          message: report.error.message,
+          retry: "retry" in report.error ? report.error.retry : "never",
+          ...("action" in report.error ? { action: report.error.action } : {}),
+        },
+        report.logs,
+        timings,
+      );
     }
 
     const size = JSON.stringify(report.value)?.length ?? 0;
     if (size > RESULT_CEILING_BYTES) {
       // Never truncated, and deliberately not included: a model reasoning
       // over a result that quietly lost its tail is confidently wrong.
-      return yield* Effect.fail(
-        sandboxFailure(
-          {
-            tag: "ResultTooLarge",
-            message: `the result is ${size} bytes and the ceiling is ${RESULT_CEILING_BYTES}. Return less, or return a summary.`,
-          },
-          report.logs,
-        ),
+      return failedReport(
+        {
+          tag: "ResultTooLarge",
+          message: `the result is ${size} bytes and the ceiling is ${RESULT_CEILING_BYTES}. Return less, or return a summary.`,
+          retry: "never",
+        },
+        report.logs,
+        timings,
       );
     }
 
-    return {
-      result: report.value,
-      ...(report.logs.length === 0 ? {} : { logs: boundedLogs(report.logs) }),
-    };
+    return { outcome: { ok: true, result: report.value }, logs: report.logs, timings };
   });

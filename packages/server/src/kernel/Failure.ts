@@ -47,6 +47,12 @@ export interface Failure {
    * debuggable, and no other failure has output to carry.
    */
   readonly logs?: readonly string[];
+  /**
+   * The run this failure has a record for. Present only on failures from a
+   * run that booted - the handle to the record when something needs
+   * debugging. A failure refused at the door never ran, so it carries none.
+   */
+  readonly runId?: string;
 }
 
 /**
@@ -60,6 +66,7 @@ export interface OptiError {
   readonly retry: Retry;
   readonly action?: Action;
   readonly logs?: readonly string[];
+  readonly runId?: string;
 }
 
 /**
@@ -94,6 +101,7 @@ export const toFailure = (u: unknown): Failure => {
       retry: u.retry,
       ...(u.action === undefined ? {} : { action: u.action }),
       ...(u.logs === undefined ? {} : { logs: u.logs }),
+      ...(u.runId === undefined ? {} : { runId: u.runId }),
     };
   }
   if (u instanceof Error) {

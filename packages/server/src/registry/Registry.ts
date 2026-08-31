@@ -10,6 +10,10 @@
  * virtual module grants cannot drift apart: both read this record.
  */
 
+import type { PackageExport } from "../packages/Manifest.ts";
+import type { SandboxPackage } from "../runner/VirtualModule.ts";
+import type { PublishedPackage } from "../store/PackageState.ts";
+
 export interface Example {
   /** A complete module of the kind `execute` takes. */
   readonly code: string;
@@ -99,6 +103,95 @@ export const fetchCapability: Capability = {
   code: FETCH_CODE,
 };
 
+/**
+ * The internal-call helper each store-backed capability carries. Written out
+ * per capability with a unique name on purpose: capability code strings are
+ * joined into one module scope by the virtual module builder, so a shared
+ * helper name would collide and a shared preamble would couple the grant
+ * list's members to each other.
+ */
+const internalCall = (helper: string): string => `const ${helper} = async (path, body) => {
+  const response = await globalThis.fetch("https://opti.internal" + path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json();
+  if (response.headers.get("x-opti-failure") === "1") {
+    const denial = new Error(payload.message);
+    denial._tag = payload.tag;
+    denial.retry = payload.retry;
+    if (payload.action !== undefined) denial.action = payload.action;
+    throw denial;
+  }
+  return payload;
+};`;
+
+const STORAGE_CODE = `${internalCall("storageCall")}
+export const storage = {
+  get: async (key) => (await storageCall("/storage/get", { key })).value,
+  set: async (key, value) => { await storageCall("/storage/set", { key, value }); },
+  delete: async (key) => (await storageCall("/storage/delete", { key })).deleted,
+  list: (prefix) => storageCall("/storage/list", { prefix }),
+};`;
+
+export const storageCapability: Capability = {
+  kind: "capability",
+  name: "storage",
+  summary:
+    "Owner-scoped key-value state that survives across runs. The namespace is flat and shared by all your packages: prefix your keys.",
+  signature:
+    "storage: { get(key: string): Promise<unknown>; set(key: string, value: unknown): Promise<void>; " +
+    "delete(key: string): Promise<boolean>; list(prefix?: string): Promise<{ keys: string[]; truncated?: string }> }",
+  importLine: 'import { storage } from "opti:capabilities";',
+  errorTags: ["InvalidStorageKey", "StorageValueTooLarge", "FetchBudgetExhausted"],
+  example: {
+    code:
+      'import { storage } from "opti:capabilities";\n' +
+      "\n" +
+      "// Keys match [a-z0-9:._-]+ and values are JSON. An oversized set\n" +
+      "// fails outright; it is never truncated.\n" +
+      "export default async () => {\n" +
+      '  await storage.set("example:greeting", { hello: "world" });\n' +
+      '  return await storage.get("example:greeting");\n' +
+      "};\n",
+    result: { hello: "world" },
+  },
+  code: STORAGE_CODE,
+};
+
+const RUNS_CODE = `${internalCall("runsCall")}
+export const runs = {
+  query: (filter) => runsCall("/runs/query", filter ?? {}),
+  get: (runId) => runsCall("/runs/get", { runId }),
+};`;
+
+export const runsCapability: Capability = {
+  kind: "capability",
+  name: "runs",
+  summary: "Query your past run records by time, source and outcome, or get one whole record by its run id.",
+  signature:
+    "runs: { query(filter?: { since?: string; until?: string; source?: string; " +
+    'outcome?: "success" | "failure"; limit?: number }): ' +
+    "Promise<{ runId: string; createdAt: string; source: string; outcome: string; totalMs: number }[]>; " +
+    "get(runId: string): Promise<unknown> }",
+  importLine: 'import { runs } from "opti:capabilities";',
+  errorTags: ["NoSuchRun", "FetchBudgetExhausted"],
+  example: {
+    // Deterministic for a fresh owner - which is every owner the first time:
+    // no run has failed yet, so the count is zero.
+    code:
+      'import { runs } from "opti:capabilities";\n' +
+      "\n" +
+      "export default async () => {\n" +
+      '  const failed = await runs.query({ outcome: "failure" });\n' +
+      "  return { failures: failed.length };\n" +
+      "};\n",
+    result: { failures: 0 },
+  },
+  code: RUNS_CODE,
+};
+
 export const add: Capability = {
   kind: "capability",
   name: "add",
@@ -113,5 +206,39 @@ export const add: Capability = {
   code: "export const add = (a, b) => a + b;",
 };
 
-/** Every owner sees the built-ins; Slice 3 adds what is theirs on top. */
-export const builtIns: readonly Capability[] = [add, fetchCapability];
+/** Every owner sees the built-ins; their published packages arrive beside
+ * these, resolved per owner from the owner store. */
+export const builtIns: readonly Capability[] = [add, fetchCapability, storageCapability, runsCapability];
+
+/**
+ * A published package as discovery sees it. The kind tag maps one-to-one to
+ * the import the model writes: `opti:packages/<name>`, a namespace distinct
+ * from `opti:capabilities`.
+ */
+export interface PackageEntry {
+  readonly kind: "package";
+  readonly name: string;
+  readonly summary: string;
+  readonly exports: readonly PackageExport[];
+  readonly importLine: string;
+}
+
+/** One result set spans both sources, each entry saying which it is. */
+export type Entry = Capability | PackageEntry;
+
+export const packageEntry = (published: PublishedPackage): PackageEntry => ({
+  kind: "package",
+  name: published.name,
+  summary: published.manifest.summary,
+  exports: published.manifest.exports,
+  importLine: `import { ${published.manifest.exports.map((declared) => declared.name).join(", ")} } from "opti:packages/${published.name}";`,
+});
+
+/** The same snapshots, shaped for the virtual module builder. */
+export const sandboxPackages = (published: readonly PublishedPackage[]): readonly SandboxPackage[] =>
+  published.map((pkg) => ({
+    name: pkg.name,
+    entry: pkg.entry,
+    files: pkg.files,
+    exportNames: pkg.manifest.exports.map((declared) => declared.name),
+  }));

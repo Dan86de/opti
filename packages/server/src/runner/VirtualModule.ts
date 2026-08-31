@@ -69,7 +69,12 @@ const show = (value) => {
 
 export default {
   async fetch() {
+    const startedAt = Date.now();
     const logs = [];
+    // Phase timings, sandbox-reported because the host sees one opaque call.
+    // Workerd freezes the clock during pure computation, so these mostly
+    // measure I/O - which is the half worth measuring.
+    const timings = {};
     const record = (level) => (...args) => {
       logs.push(level + ": " + args.map(show).join(" "));
     };
@@ -89,27 +94,34 @@ export default {
         ok: false,
         error: Object.assign({ tag, message }, retry && { retry }, action && { action }),
         logs,
+        timings,
       }));
     };
 
     let submitted;
     try {
       submitted = await import("./submitted.js");
+      timings.bootMs = Date.now() - startedAt;
     } catch (thrown) {
+      timings.bootMs = Date.now() - startedAt;
       return failure(readTag(thrown), "the module could not be loaded: " + readMessage(thrown), thrown);
     }
     if (typeof submitted.default !== "function") {
       return failure("NoDefaultExport", "the module must default-export an async function");
     }
 
+    const callStartedAt = Date.now();
     try {
       const value = await submitted.default();
+      timings.executeMs = Date.now() - callStartedAt;
       const serialized = JSON.stringify(value);
       if (serialized === undefined) {
         return failure("ResultNotSerializable", "the returned value does not survive JSON");
       }
-      return report('{"ok":true,"value":' + serialized + ',"logs":' + JSON.stringify(logs) + "}");
+      return report('{"ok":true,"value":' + serialized + ',"logs":' + JSON.stringify(logs) +
+        ',"timings":' + JSON.stringify(timings) + "}");
     } catch (thrown) {
+      timings.executeMs = Date.now() - callStartedAt;
       return failure(readTag(thrown), readMessage(thrown), thrown);
     }
   },
@@ -118,13 +130,63 @@ export default {
 
 export type ModuleMap = Record<string, string | { readonly js: string }>;
 
+/** What the map needs of a published package: the emitted files, the entry
+ * they start from, and the manifest's export names for the alias. */
+export interface SandboxPackage {
+  readonly name: string;
+  readonly entry: string;
+  readonly files: Readonly<Record<string, string>>;
+  readonly exportNames: readonly string[];
+}
+
+/**
+ * The bare package specifier resolves to a generated alias that re-exports
+ * exactly the manifest's names from the entry file. The manifest is the
+ * interface: an export the manifest does not declare is reachable through
+ * the full file path but invisible at the name the model imports.
+ *
+ * The leading slash is load-bearing: workerd resolves specifiers as paths
+ * against the referrer, and this alias module's own name contains slashes,
+ * so a bare specifier here would resolve under `opti:packages/` instead of
+ * at the root. `/` is the depth-independent spelling of "from the root";
+ * publish rewrites the emitted files' own `opti:` imports the same way.
+ */
+const packageAlias = (pkg: SandboxPackage): string =>
+  `export { ${pkg.exportNames.join(", ")} } from "/opti:packages/${pkg.name}/${pkg.entry}";`;
+
 /**
  * Build the map for one execution. Generated per execution on purpose: the
  * grant list is whatever was resolved for this run, so what `search` said and
- * what the import line finds cannot drift apart.
+ * what the import line finds cannot drift apart. Every published package is
+ * included - the virtual module is a grant list of everything yours, the
+ * same philosophy as the built-ins.
  */
-export const build = (granted: readonly Capability[], submitted: string): ModuleMap => ({
-  "main.js": ENTRY,
-  "submitted.js": submitted,
-  [CAPABILITIES_MODULE]: { js: granted.map((capability) => capability.code).join("\n") },
-});
+export const build = (
+  granted: readonly Capability[],
+  packages: readonly SandboxPackage[],
+  submitted: string,
+): ModuleMap => {
+  for (const capability of granted) {
+    // The layering rule, enforced at build time as well as by the boundary
+    // test: a capability never imports a package, because shipped code must
+    // not depend on owner-mutable code. Our own mistake is the threat, so
+    // throwing a defect here is the right loudness.
+    if (capability.code.includes("opti:packages")) {
+      throw new Error(
+        `capability ${capability.name} names opti:packages; an edit to a package must never change what a primitive means`,
+      );
+    }
+  }
+  const map: ModuleMap = {
+    "main.js": ENTRY,
+    "submitted.js": submitted,
+    [CAPABILITIES_MODULE]: { js: granted.map((capability) => capability.code).join("\n") },
+  };
+  for (const pkg of packages) {
+    map[`opti:packages/${pkg.name}`] = { js: packageAlias(pkg) };
+    for (const [path, content] of Object.entries(pkg.files)) {
+      map[`opti:packages/${pkg.name}/${path}`] = { js: content };
+    }
+  }
+  return map;
+};
