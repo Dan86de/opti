@@ -10,10 +10,12 @@
  */
 import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import { Data, Effect, Exit } from "effect";
+import * as Search from "./discovery/Search.ts";
 import * as Authorize from "./http/Authorize.ts";
 import { Owner, type Upstream } from "./identity/index.ts";
 import { Envelope, type Failure } from "./kernel/index.ts";
 import * as Transport from "./mcp/Transport.ts";
+import * as Registry from "./registry/Registry.ts";
 
 /**
  * Everything the request path is allowed to reach.
@@ -89,7 +91,11 @@ const apiHandler = {
 
     // Tools are built here, at the door, per request: each handler is bound to
     // this owner and these bindings, so the transport never sees either.
-    const tools: readonly Transport.ServedTool[] = [];
+    // Slice 1 resolves the same built-ins for every owner; the per-owner half
+    // of the registry arrives with packages in Slice 3.
+    const tools: readonly Transport.ServedTool[] = [
+      Transport.serve(Search.tool, (input) => Search.run(Registry.builtIns, input)),
+    ];
 
     return Effect.runPromise(Transport.handle(request, tools));
   },
