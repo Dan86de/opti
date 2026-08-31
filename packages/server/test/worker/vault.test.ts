@@ -30,7 +30,10 @@ describe("the credential store", () => {
     const ownerId = mintedOwnerId();
     const vault = vaultFor(env.OWNER_VAULT, ownerId);
 
-    await expect(vault.putCredential(ownerId, "Todoist Token", "value")).rejects.toThrow(/\[a-z0-9._-\]/);
+    const verdict = await vault.putCredential(ownerId, "Todoist Token", "value");
+
+    expect(verdict.saved).toBe(false);
+    expect(JSON.stringify(verdict)).toContain("[a-z0-9._-]");
     expect(await vault.listCredentials()).toStrictEqual([]);
   });
 
@@ -103,7 +106,14 @@ describe("the owner binding", () => {
     });
     await vaultB.approveHost("todoist", "api.todoist.com");
 
-    await expect(vaultB.resolveForHost(ownerB, ["todoist"], "api.todoist.com")).rejects.toThrow();
+    // The row resolves as if never saved - the value that must not be
+    // present is B's to see under no reason - and it is deliberately not
+    // reported as anything more specific, so nobody can probe which rows
+    // were moved.
+    expect(await vaultB.resolveForHost(ownerB, ["todoist"], "api.todoist.com")).toStrictEqual({
+      ok: false,
+      unresolved: [{ name: "todoist", reason: "unknown" }],
+    });
     // The redaction read skips the unreadable row rather than failing, and
     // above all it does not hand B the value: a value we cannot read is a
     // value we cannot leak.

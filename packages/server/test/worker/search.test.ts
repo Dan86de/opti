@@ -41,7 +41,14 @@ describe("search", () => {
     expect(result.structuredContent).toMatchObject({
       ok: true,
       value: {
-        results: [{ kind: "capability", name: "add", signature: "add(a: number, b: number): number" }],
+        results: [
+          { kind: "capability", name: "add", signature: "add(a: number, b: number): number" },
+          {
+            kind: "capability",
+            name: "fetch",
+            signature: "fetch(input: string | Request, init?: RequestInit): Promise<Response>",
+          },
+        ],
       },
     });
   });
@@ -104,7 +111,9 @@ describe("search", () => {
   it("names what does exist when nothing matches", async () => {
     const { accessToken } = await mintAccessToken();
 
-    const result = await search(accessToken, { query: "send an email" });
+    // Chosen to share no token with any capability's prose - the ranking is
+    // substring-based, so even "an" would match inside "sandbox".
+    const result = await search(accessToken, { query: "email my boss" });
 
     expect(result.structuredContent).toMatchObject({
       ok: true,

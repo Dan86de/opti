@@ -31,6 +31,41 @@ export class OwnOriginRefused extends Data.TaggedError("OwnOriginRefused")<{
 }
 
 /**
+ * A placeholder names a credential nobody saved. Distinct from
+ * `HostNotApproved` because the fixes are different - save a credential
+ * versus approve a host - and only approval has a link; saving is
+ * terminal-only, so the message hands over the command instead.
+ */
+export class UnknownCredential extends Data.TaggedError("UnknownCredential")<{
+  readonly message: string;
+}> {
+  readonly retry: Failure.Retry = "never";
+}
+
+/** The one denial a human can lift, so the one that carries an action. */
+export class HostNotApproved extends Data.TaggedError("HostNotApproved")<{
+  readonly message: string;
+  readonly action: Failure.Action;
+}> {
+  readonly retry: Failure.Retry = "never";
+}
+
+/** A placeholder-bearing request that is not https on the default port,
+ * whatever the allowlist says. */
+export class InsecureTransport extends Data.TaggedError("InsecureTransport")<{
+  readonly message: string;
+}> {
+  readonly retry: Failure.Retry = "never";
+}
+
+/** The daily outbound ceiling. Retry `after`: the message names the reset. */
+export class FetchBudgetExhausted extends Data.TaggedError("FetchBudgetExhausted")<{
+  readonly message: string;
+}> {
+  readonly retry: Failure.Retry = "after";
+}
+
+/**
  * Encode a denial as the marked synthetic response.
  *
  * The status is cosmetic - the wrapper dispatches on the marker, never the

@@ -40,6 +40,15 @@ export default defineProject({
           // CPU, which under miniflare would crash workerd (the recorded
           // spike finding) instead of exercising the host-side race.
           EXECUTE_TIMEOUT_MS: "2000",
+          // Overridden down so the budget tests trip real ceilings. Four
+          // rather than the spec's two, because the deny-approve-succeed
+          // journey itself spends three executions and three counted
+          // fetches on one owner before anything is over budget.
+          EXECUTION_BUDGET: "4",
+          FETCH_BUDGET: "4",
+          // The https-only exemption for the loopback listener; see the
+          // comment in wrangler.jsonc. Production pins this empty.
+          GATEWAY_INSECURE_HOSTS: "127.0.0.1",
         },
       },
     }),
@@ -47,6 +56,10 @@ export default defineProject({
   test: {
     name: "workers",
     include: ["test/worker/**/*.test.ts"],
+    // One file at a time: the listener is shared state, and the assertions
+    // worth the most here are "the wire stayed silent" counts, which a
+    // concurrent file's legitimate probes would falsify.
+    fileParallelism: false,
     // Both of these exist to be reached. The listener is what makes the egress
     // test's denial mean something; the doubled upstream is what lets the login
     // be driven end to end without a browser and without the real GitHub.

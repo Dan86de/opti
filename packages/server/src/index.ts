@@ -12,6 +12,7 @@ import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import { Data, Effect, Exit } from "effect";
 import * as Admin from "./admin/Admin.ts";
 import * as Search from "./discovery/Search.ts";
+import type * as Gateway from "./gateway/Gateway.ts";
 import * as Approve from "./http/Approve.ts";
 import * as Authorize from "./http/Authorize.ts";
 import { Owner, type Upstream } from "./identity/index.ts";
@@ -19,7 +20,6 @@ import { Envelope, type Failure } from "./kernel/index.ts";
 import * as Transport from "./mcp/Transport.ts";
 import * as Registry from "./registry/Registry.ts";
 import * as Execute from "./runner/Execute.ts";
-import type * as Runner from "./runner/Runner.ts";
 
 // The seam. `globalOutbound` accepts only a Fetcher, so the gateway is a
 // WorkerEntrypoint on the main module, reached through `ctx.exports` with
@@ -40,7 +40,8 @@ export interface Bindings
   extends Upstream.UpstreamBindings,
     Owner.OwnerBindings,
     Authorize.AuthorizeBindings,
-    Runner.RunnerBindings,
+    Execute.ExecuteBindings,
+    Gateway.GatewayBindings,
     Admin.AdminBindings {}
 
 /** Where the MCP surface will live. Everything under it needs a valid token. */

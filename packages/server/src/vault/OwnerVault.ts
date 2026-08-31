@@ -46,6 +46,11 @@ export type Resolution =
   | { readonly ok: true; readonly values: Readonly<Record<string, string>> }
   | { readonly ok: false; readonly unresolved: readonly UnresolvedCredential[] };
 
+/** RPC methods answer with verdicts rather than throwing: a rejection
+ * crossing the RPC boundary arrives stripped to a message string, and the
+ * admin surface needs the refusal as data it can put in an envelope. */
+export type PutVerdict = { readonly saved: true } | { readonly saved: false; readonly message: string };
+
 /** The vault for one owner. The only way anything addresses one. */
 export const vaultFor = (
   namespace: DurableObjectNamespace<OwnerVault>,
@@ -57,8 +62,16 @@ export class OwnerVault extends DurableObject<VaultBindings> {
    * The credential store's write path, reachable only through the admin
    * surface; see the import-boundary test.
    */
-  putCredential(ownerId: string, name: string, value: string): Promise<void> {
-    return Effect.runPromise(CredentialStore.put(this.ctx.storage, this.env.CREDENTIAL_KEY, ownerId, name, value));
+  putCredential(ownerId: string, name: string, value: string): Promise<PutVerdict> {
+    return Effect.runPromise(
+      CredentialStore.put(this.ctx.storage, this.env.CREDENTIAL_KEY, ownerId, name, value).pipe(
+        Effect.map((): PutVerdict => ({ saved: true })),
+        Effect.catchTag(
+          "InvalidCredentialName",
+          (refusal): Effect.Effect<PutVerdict> => Effect.succeed({ saved: false, message: refusal.message }),
+        ),
+      ),
+    );
   }
 
   /** The host policy's write path, under the same import boundary. */
@@ -107,10 +120,22 @@ export class OwnerVault extends DurableObject<VaultBindings> {
 
         const values: Record<string, string> = {};
         for (const name of names) {
-          const value = yield* CredentialStore.get(storage, secret, ownerId, name).pipe(Effect.orDie);
-          if (value !== undefined) {
+          // A row that refuses to decrypt - moved between owners, or
+          // corrupted - resolves as if never saved: the remedy is the same,
+          // save the credential again, and above all the caller gets no
+          // value. It is not reported as its own reason, because a caller
+          // able to distinguish the two learns which rows were moved.
+          const value = yield* CredentialStore.get(storage, secret, ownerId, name).pipe(
+            Effect.orElseSucceed(() => undefined),
+          );
+          if (value === undefined) {
+            unresolved.push({ name, reason: "unknown" });
+          } else {
             values[name] = value;
           }
+        }
+        if (unresolved.length > 0) {
+          return { ok: false, unresolved } as const;
         }
         return { ok: true, values } as const;
       }),

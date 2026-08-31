@@ -136,12 +136,14 @@ const saveCredential = (request: Request, bindings: AdminBindings) =>
       ),
     );
     const ownerId = yield* resolveOwner(bindings, input.identity);
-    yield* Effect.tryPromise({
-      try: () => vaultFor(bindings.OWNER_VAULT, ownerId).putCredential(ownerId, input.name, input.value),
-      // The vault refuses a name the placeholder protocol cannot spell; keep
-      // its message, which names the pattern.
-      catch: (cause) => new MalformedAdminRequest({ message: String(cause instanceof Error ? cause.message : cause) }),
-    });
+    const verdict = yield* Effect.promise(
+      async () => await vaultFor(bindings.OWNER_VAULT, ownerId).putCredential(ownerId, input.name, input.value),
+    );
+    if (!verdict.saved) {
+      // The vault refuses a name the placeholder protocol cannot spell; its
+      // message names the pattern.
+      return yield* new MalformedAdminRequest({ message: verdict.message });
+    }
     // Saving authorizes nothing: the value and the permission to send it are
     // two separate grants, so the answer names no hosts.
     return { saved: input.name };

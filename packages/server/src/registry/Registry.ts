@@ -41,6 +41,59 @@ export interface Capability {
   readonly code: string;
 }
 
+/**
+ * The wrapper is not decorative: a gateway denial travels as a synthetic
+ * response marked `x-opti-failure: 1`, and this is what turns it into a
+ * tagged throw the entry module already knows how to carry - tag, message,
+ * retry and the approval action intact. Raw global `fetch` works too and
+ * sees the marked response; the gateway, not this wrapper, is the boundary.
+ */
+const FETCH_CODE = `export const fetch = async (input, init) => {
+  const response = await globalThis.fetch(input, init);
+  if (response.headers.get("x-opti-failure") === "1") {
+    const failure = await response.json();
+    const denial = new Error(failure.message);
+    denial._tag = failure.tag;
+    denial.retry = failure.retry;
+    if (failure.action !== undefined) denial.action = failure.action;
+    throw denial;
+  }
+  return response;
+};`;
+
+export const fetchCapability: Capability = {
+  kind: "capability",
+  name: "fetch",
+  summary:
+    "HTTP to the outside world. Write {{credential:name}} where a saved credential's value goes; it is substituted outside the sandbox, only for hosts the owner approved.",
+  signature: "fetch(input: string | Request, init?: RequestInit): Promise<Response>",
+  importLine: 'import { fetch } from "opti:capabilities";',
+  errorTags: ["UnknownCredential", "HostNotApproved", "InsecureTransport", "OwnOriginRefused", "FetchBudgetExhausted"],
+  example: {
+    code:
+      'import { fetch } from "opti:capabilities";\n' +
+      "\n" +
+      "// The credential's name goes where its value would; the value is\n" +
+      "// substituted outside the sandbox and this code never holds it.\n" +
+      "export default async () => {\n" +
+      "  try {\n" +
+      '    const response = await fetch("https://api.todoist.com/rest/v2/projects", {\n' +
+      '      headers: { authorization: "Bearer {{credential:todoist}}" },\n' +
+      "    });\n" +
+      "    return { status: response.status };\n" +
+      "  } catch (denial) {\n" +
+      "    // A denial is typed and never worth retrying. Stop and hand the\n" +
+      "    // human denial.message - and denial.action.url when present.\n" +
+      "    return { stopped: denial._tag };\n" +
+      "  }\n" +
+      "};\n",
+    // What this exact module returns for an owner with nothing saved, which
+    // is every owner the first time: the denial that says to save first.
+    result: { stopped: "UnknownCredential" },
+  },
+  code: FETCH_CODE,
+};
+
 export const add: Capability = {
   kind: "capability",
   name: "add",
@@ -56,4 +109,4 @@ export const add: Capability = {
 };
 
 /** Every owner sees the built-ins; Slice 3 adds what is theirs on top. */
-export const builtIns: readonly Capability[] = [add];
+export const builtIns: readonly Capability[] = [add, fetchCapability];
