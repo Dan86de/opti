@@ -6,12 +6,13 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "typecheck": "tsc --noEmit -p tsconfig.json && effect-tsgo diagnostics --project tsconfig.json --format text --strict",
+    "typecheck": "node ../../node_modules/typescript/bin/tsc --noEmit -p tsconfig.json && effect-tsgo diagnostics --project tsconfig.json --format text --strict",
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "0.10.3",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "in-worker-typescript": "npm:typescript@5.9.3"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.1.2",

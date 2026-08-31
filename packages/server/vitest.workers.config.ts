@@ -16,6 +16,20 @@ import { UPSTREAM_CLIENT_ID, UPSTREAM_CLIENT_SECRET, UPSTREAM_ORIGIN } from "./t
  * through the door.
  */
 export default defineProject({
+  // The in-worker compiler probes bare Node builtins at module init, and
+  // vite would substitute browser-compat stubs that crash it ("os.platform
+  // is not a function"). The same shim map as wrangler.jsonc's "alias", so
+  // the test pool and the production bundle resolve identically.
+  resolve: {
+    alias: {
+      fs: new URL("./src/publish/node-shims/fs.ts", import.meta.url).pathname,
+      os: new URL("./src/publish/node-shims/os.ts", import.meta.url).pathname,
+      path: new URL("./src/publish/node-shims/path.ts", import.meta.url).pathname,
+      perf_hooks: new URL("./src/publish/node-shims/perf_hooks.ts", import.meta.url).pathname,
+      inspector: new URL("./src/publish/node-shims/inspector.ts", import.meta.url).pathname,
+      crypto: new URL("./src/publish/node-shims/crypto.ts", import.meta.url).pathname,
+    },
+  },
   plugins: [
     cloudflareTest({
       wrangler: { configPath: "./wrangler.jsonc" },
@@ -56,6 +70,17 @@ export default defineProject({
   test: {
     name: "workers",
     include: ["test/worker/**/*.test.ts"],
+    deps: {
+      optimizer: {
+        ssr: {
+          enabled: true,
+          // The in-worker compiler is nine megabytes of CommonJS whose
+          // sourceMappingURL points at a map the package does not ship;
+          // pre-bundling is what keeps the pool's transform out of it.
+          include: ["in-worker-typescript"],
+        },
+      },
+    },
     // One file at a time: the listener is shared state, and the assertions
     // worth the most here are "the wire stayed silent" counts, which a
     // concurrent file's legitimate probes would falsify.

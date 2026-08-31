@@ -8,8 +8,9 @@
   "files": {
     "ignoreUnknown": false,
     // repos/ is vendored upstream source, committed on purpose as agent
-    // reference material. It is not ours to lint or format.
-    "includes": ["**", "!repos", "!**/worker-configuration.d.ts"]
+    // reference material. It is not ours to lint or format. The generated
+    // lib embedding is a megabyte of string literals with its own generator.
+    "includes": ["**", "!repos", "!**/worker-configuration.d.ts", "!**/libs.generated.ts"]
   },
   "formatter": {
     "enabled": true,
