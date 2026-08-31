@@ -287,6 +287,96 @@ And a failure is debuggable from its run record alone, without adding a log line
 **Proves.**
 Discovery, run records, the source primitive, publish and activation, and that the loop closes.
 
+**Decisions.**
+Taken on 2026-08-31, in the interview that opened the slice, and recorded here for the same reason as the earlier slices' decisions: a later reader should not have to re-derive them from the code.
+The interview ran against the frozen spec.
+The package-primitive articles that prompted it were read as background, and nothing they describe beyond this slice - schedules, durable workflows, values, memory, per-package objects - was adopted; the out-of-scope list stands.
+
+**The owner store.**
+Everything this slice persists lives in a second per-owner durable object beside the vault: the owner store, SQLite-backed, arriving as its own `new_sqlite_classes` migration, holding run records, package state and storage data as three modules with separate write paths - the vault's own pattern.
+Extending the vault was declined for two reasons.
+A durable object is single-threaded, so every record write and every mid-run storage call would have serialized with credential resolution.
+And sandbox-driven storage traffic would have gained a call path into the object that holds credentials; with a separate class, a bug in the busiest surface cannot reach the most sensitive one.
+The vault stays the secrets object - credentials, policy, counters - and the store is the work object.
+One new class rather than one per concern, because at one owner three migrations and three stubs buy isolation nothing yet needs.
+
+**How storage reaches the sandbox.**
+Derived rather than decided, because there was no alternative to weigh: the isolate receives no `env` - that absence is the boundary - so the only channel out is `globalOutbound`, which is the gateway.
+Storage calls travel as fetches to a reserved hostname on the `.internal` TLD, which can never be a real host, and the gateway routes them to the owner's store instead of the network.
+Authority is the host-set props, the same rule as credential resolution: nothing the sandbox writes can address another owner's store.
+A storage call is an outbound request at the gateway's door, so it counts against the existing fetch budget - a loop hammering `set` is still a runaway - and no third ceiling class exists.
+
+**The storage contract.**
+`storage` in `opti:capabilities` is key-value: get, set, delete, and list by prefix, with JSON values.
+Structured queries wait for a real package to fail on prefix-listing, the same discipline as lexical search.
+The namespace is flat and owner-scoped, and the signature says so plainly, because per-package scoping is unenforceable: one submitted module may import three packages, and every storage call leaves the same isolate through the same Fetcher, so a scope claim would be convention wearing enforcement's clothes.
+The model prefixes its own keys, and a collision is confined to the owner's own data.
+Keys match `[a-z0-9:._-]+`.
+A value has a ceiling, and an oversized `set` is a failure and never a truncation - the result ceiling's own asymmetry - because a store that quietly accepts blobs becomes a blob store.
+`list` is bounded, and a cut list carries a truncation marker.
+
+**Run records.**
+The record is written to the owner store before `execute` responds.
+The rule this slice opened with forbids a synchronous write on a relational hot path; a write to the owner's own object is neither, and writing first is what makes "that worked, save it" safe to say immediately - a fire-and-forget write would make create-from-run race the owner's own storage.
+When the run succeeded and the record write failed, the run's real result returns with an explicit marker that no record exists: the owner asked for the run, not the bookkeeping, and failing a successful run would invite a duplicate retry of side effects that already happened.
+The gap is visible rather than silent, which is the same asymmetry discipline as everywhere else.
+Every `execute` response carries the run id - the handle create-from-run names, and the link from a conversation to its record when something needs debugging.
+
+**What a record holds.**
+The submitted code, the full envelope, captured logs under the record's own ceiling - larger than the envelope's, because 8KB is a context-budget bound and not a truth bound - phase timings of boot, execution and total, the outcome, the source and the timestamps.
+Source is `execute` on every record in this slice; schedules and webhooks name themselves when they exist.
+And the gateway trail: one line per outbound request - method, host, status, duration - including denials, post-redaction, never bodies and never values.
+The per-run gateway instance already holds the run id in its props, so it buffers the trail and the runner collects it when the run ends.
+The trail is what makes "debuggable from the record alone" true for the failure class that actually happens - which host, which status, in what order - without the add-a-log-line-and-reproduce loop the done-when forbids.
+Response bodies stay out, for the same reason response-side scanning was declined in Slice 2: a bounded body prefix could carry an echoed credential past a redaction scan that matches raw values.
+
+**Querying runs.**
+A `runs` capability in the virtual module: query by time, source and outcome, and get one record by id.
+Querying is behaviour, and behaviour lives inside `execute`, per the contract that keeps the tool count at three.
+It travels the same gateway-to-store path as `storage`, and the result ceiling applies to what comes back.
+
+**What a package is.**
+An ES module with named exports, each declared in its manifest with a TypeScript signature; the manifest is what `search` shows and what publish holds the code to.
+Create-from-run freezes the run's function as the first version's one export, honest about being a first attempt; create-from-source and edit exist precisely so the proper parameterized version can replace it.
+Package files may be TypeScript.
+Publish typechecks them with the in-worker compiler and emits the JavaScript the virtual module serves; source and emitted output both live in the owner store.
+This is the reading the risk section already bet on, it makes search's TypeScript signatures honest because they are checked against real types, and the model writes the language the signatures are in.
+
+**The publish pipeline.**
+In order: typecheck, emit, boot the emitted module in a real isolate, verify the declared exports exist.
+Any failure fails the publish, the pointer does not move, and the previous version keeps serving.
+Publish is the one transaction the package store owns.
+Only the published snapshot ever enters an isolate; working state never runs, except inside the publish check itself.
+
+**Imports and names.**
+A package is imported as `opti:packages/<name>`, a namespace distinct from `opti:capabilities`, so the kind tag on every search result maps one-to-one to the import the model writes.
+Multi-file packages resolve relative imports inside the module map - Worker Loader already resolves among map members, so there is still no bundler, and the bare-npm-specifier trigger stands.
+Names match the credential charset, `[a-z0-9._-]+`, and are unique across capabilities and packages: create refuses a name a capability holds, so no package can shadow `fetch` and a name lookup never needs disambiguation.
+Every execution's module map includes all of the owner's published packages - the virtual module is a grant list of everything yours, the same philosophy as the built-ins.
+
+**The layering rule.**
+A package may import capabilities and other packages; a capability never imports a package, because shipped code must not depend on owner-mutable code - an edit to a package must never change what a primitive means.
+The threat is our own mistake rather than an attacker, since capability source is ours, so the enforcement is the Slice 2 convention: an import-boundary test over the built-in sources, and the virtual module builder refusing to splice capability code that names `opti:packages`.
+
+**Drafts and edit.**
+`search` shows published packages only, because publish is what makes a thing discoverable.
+`packages.read` with no name lists everything with its state, so an unpublished draft from a dead conversation is findable - argument-shaped modes, the same design as `search`'s three, not a fifth action.
+Edit is one call changing one file, atomically, and manifest changes ride the same action.
+The editing session the modules section describes - open, patch, check, commit, close - is the internal transaction, never tool verbs.
+
+**Ranking.**
+Package-above-capability is a tie-break on equal score, not an additive bonus, because a weak package match must not outrank a strong primitive match.
+"When both match equally" was already the test line, and now it is also the implementation note.
+
+**Failure surface.**
+Only the two behaviours this interview settled are named now: an oversized storage value fails its `set` with the result ceiling's semantics, and a run that succeeded while its record write failed is not a failure at all - it is a success carrying an explicit no-record marker.
+The rest of the slice's tag set is named when its modules are written, following the taxonomy.
+
+**Build order inside the slice.**
+The owner store migration and the layering import-boundary test first, because a boundary is cheapest to hold from the day it exists.
+Then the pure logic in plain vitest: name rules, ranking tie-break, manifest checks, record shape.
+Then the store's three modules under the workers pool, then the storage capability through the gateway's internal route, then run records wired into the runner and the trail into the gateway, then `packages` end to end through the publish pipeline, then `search` over both sources, then deploy and the by-hand done-when in a real host.
+
 **Watch for.**
 The first durable object arrived a slice early: Slice 2's owner vault, per the interview that opened that slice, so the deployment-split trigger is already live rather than theoretical.
 A deploy of the script that owns a durable object class restarts those objects.
@@ -591,6 +681,5 @@ What replaced them is written with that slice: two of them became decisions, one
 
 ### Vocabulary
 
-There is no `CONTEXT.md` yet.
-This spec uses the plan's terms: owner, capability, package, isolate, gateway, placeholder, virtual module, run record, envelope, publish, slice.
-The first of these to be contested is the one to write the glossary around.
+`CONTEXT.md` exists as of 2026-08-31, written during the Slice 3 interview, and it is the record of language the way this spec is the record of decisions.
+It carries the plan's terms - owner, capability, package, isolate, gateway, placeholder, virtual module, run record, envelope, publish, slice - plus the ones that slice settled: the owner store, the `storage` capability, and the resolution of "store" (the capability is `storage`; the durable objects are the owner vault and the owner store).
