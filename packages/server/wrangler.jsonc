@@ -19,7 +19,11 @@
   // the real one is, with no test-only branch in the deployed worker.
   "vars": {
     "GITHUB_ORIGIN": "https://github.com",
-    "GITHUB_API_ORIGIN": "https://api.github.com"
+    "GITHUB_API_ORIGIN": "https://api.github.com",
+    // How long the host waits on a run before abandoning it. Configuration
+    // through the door, so the tests wait milliseconds where production waits
+    // seconds without a test-only code path in the deployed worker.
+    "EXECUTE_TIMEOUT_MS": "10000"
   },
 
   // Pre-authentication state: the OAuth provider's own grant state, and the

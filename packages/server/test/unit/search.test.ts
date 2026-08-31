@@ -16,6 +16,7 @@ const capability = (name: string, summary: string): Capability => ({
   importLine: `import { ${name} } from "opti:capabilities";`,
   errorTags: [],
   example: { code: "", result: null },
+  code: "",
 });
 
 describe("ranking", () => {

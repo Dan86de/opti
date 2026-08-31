@@ -31,6 +31,11 @@ export default defineProject({
           GITHUB_CLIENT_ID: UPSTREAM_CLIENT_ID,
           GITHUB_CLIENT_SECRET: UPSTREAM_CLIENT_SECRET,
           OWNER_ALLOWLIST: "github:4242, github:4243",
+          // Overridden down so the timeout test waits two seconds, not ten.
+          // The hung run it abandons idles on a promise rather than burning
+          // CPU, which under miniflare would crash workerd (the recorded
+          // spike finding) instead of exercising the host-side race.
+          EXECUTE_TIMEOUT_MS: "2000",
         },
       },
     }),

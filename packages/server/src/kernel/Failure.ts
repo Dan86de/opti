@@ -41,6 +41,12 @@ export interface Failure {
   readonly message: string;
   readonly retry: Retry;
   readonly action?: Action;
+  /**
+   * What a run wrote before it failed. Present only on failures that come out
+   * of a sandbox that logged something: a failure without its output is not
+   * debuggable, and no other failure has output to carry.
+   */
+  readonly logs?: readonly string[];
 }
 
 /**
@@ -53,6 +59,7 @@ export interface OptiError {
   readonly message: string;
   readonly retry: Retry;
   readonly action?: Action;
+  readonly logs?: readonly string[];
 }
 
 /**
@@ -81,8 +88,13 @@ const isOptiError = (u: unknown): u is OptiError =>
  */
 export const toFailure = (u: unknown): Failure => {
   if (isOptiError(u)) {
-    const base: Failure = { tag: u._tag, message: u.message, retry: u.retry };
-    return u.action === undefined ? base : { ...base, action: u.action };
+    return {
+      tag: u._tag,
+      message: u.message,
+      retry: u.retry,
+      ...(u.action === undefined ? {} : { action: u.action }),
+      ...(u.logs === undefined ? {} : { logs: u.logs }),
+    };
   }
   if (u instanceof Error) {
     return { tag: "Unexpected", message: u.message, retry: "never" };

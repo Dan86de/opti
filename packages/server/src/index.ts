@@ -16,6 +16,8 @@ import { Owner, type Upstream } from "./identity/index.ts";
 import { Envelope, type Failure } from "./kernel/index.ts";
 import * as Transport from "./mcp/Transport.ts";
 import * as Registry from "./registry/Registry.ts";
+import * as Execute from "./runner/Execute.ts";
+import type * as Runner from "./runner/Runner.ts";
 
 /**
  * Everything the request path is allowed to reach.
@@ -24,7 +26,11 @@ import * as Registry from "./registry/Registry.ts";
  * here, so a module's requirements are stated next to the code that has them
  * and this stays a list of who is at the door.
  */
-export interface Bindings extends Upstream.UpstreamBindings, Owner.OwnerBindings, Authorize.AuthorizeBindings {}
+export interface Bindings
+  extends Upstream.UpstreamBindings,
+    Owner.OwnerBindings,
+    Authorize.AuthorizeBindings,
+    Runner.RunnerBindings {}
 
 /** Where the MCP surface will live. Everything under it needs a valid token. */
 const MCP_ROUTE = "/mcp";
@@ -76,7 +82,7 @@ const defaultHandler = {
  * old placeholder existed to assert, kept here as the door check.
  */
 const apiHandler = {
-  async fetch(request: Request, _bindings: Bindings, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, bindings: Bindings, ctx: ExecutionContext): Promise<Response> {
     const owner = await Effect.runPromise(Effect.exit(Owner.fromGrantProps(ctx.props)));
     if (Exit.isFailure(owner)) {
       return new Response(
@@ -93,8 +99,10 @@ const apiHandler = {
     // this owner and these bindings, so the transport never sees either.
     // Slice 1 resolves the same built-ins for every owner; the per-owner half
     // of the registry arrives with packages in Slice 3.
+    const ownerId = owner.value;
     const tools: readonly Transport.ServedTool[] = [
       Transport.serve(Search.tool, (input) => Search.run(Registry.builtIns, input)),
+      Transport.serve(Execute.tool, (input) => Execute.run(bindings, ownerId, input)),
     ];
 
     return Effect.runPromise(Transport.handle(request, tools));

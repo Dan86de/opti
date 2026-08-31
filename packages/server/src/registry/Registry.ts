@@ -33,6 +33,12 @@ export interface Capability {
    * a stale example is worse than no example.
    */
   readonly example: Example;
+  /**
+   * The implementation, as the source the virtual module builder splices into
+   * `opti:capabilities` when this capability is granted. Plain JavaScript: the
+   * sandbox pays no compile step and models read it as-is.
+   */
+  readonly code: string;
 }
 
 export const add: Capability = {
@@ -46,6 +52,7 @@ export const add: Capability = {
     code: 'import { add } from "opti:capabilities";\n\nexport default async () => add(20, 22);\n',
     result: 42,
   },
+  code: "export const add = (a, b) => a + b;",
 };
 
 /** Every owner sees the built-ins; Slice 3 adds what is theirs on top. */
