@@ -70,6 +70,9 @@ Production deploys happen from CI on a push to `main`, gated behind the lint, ty
 Nothing deploys off a red build.
 The deploy needs two repository secrets, `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
 
+The deployed worker itself carries secrets set once with `wrangler secret put`, never through CI: `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` and `OWNER_ALLOWLIST` from Slice 1, and since Slice 2 `OPERATOR_TOKEN` (the admin routes) and `CREDENTIAL_KEY` (the vault cipher).
+A deploy without the Slice 2 pair fails closed: the admin routes refuse everything, and the vault cannot decrypt.
+
 `wrangler deploy` from a laptop is for checking something, not for shipping.
 If a deploy did not come from `main`, the running code is not the code anyone can read.
 
@@ -111,3 +114,25 @@ Established on 2026-08-31 in `packages/server/test/worker/sandbox-egress.test.ts
 `fetch`, `cloudflare:sockets` `connect()` and `node:net.createConnection` are all refused with the same workerd message, and a listener on the other side records no connection; all three reach that listener when outbound is granted.
 So the boundary is `globalOutbound` plus the absent `env`, the virtual module is a grant list rather than a boundary, and `node:` reachability is a fact to record rather than a hole to plug.
 The test carries its own control on purpose: without something reachable to not reach, an egress test passes in an environment that has no network and proves nothing.
+
+## The gateway seam: what Slice 2 established
+
+Established on 2026-08-31, locally, in `packages/server/test/worker/gateway-seam.test.ts` and `gateway.test.ts`; the same probes have not yet been run against the deployed worker, and local and production have disagreed before.
+
+**`ctx.exports` loopback bindings are default-on** from compatibility date 2025-11-17, so the seam needs no compatibility flag.
+The runner passes `ctx.exports.Gateway({ props: { ownerId, runId, origin } })` as the loaded isolate's `globalOutbound`, and the props arrive at the gateway intact - proved through behaviour (the own-origin refusal and per-owner policy), not through an echo endpoint.
+
+**workerd routes a sandbox `connect()` to the outbound entrypoint's `connect()` method.**
+The socket paths are dead not because a Fetcher cannot carry them but because `Gateway` deliberately defines no such method.
+The day sockets are wanted, that method is the seam; until then its absence is the refusal.
+
+**Redirect-following happens in the caller's own fetch machinery.**
+The gateway fetches credentialed requests with `redirect: "manual"`, but a sandbox whose fetch defaults to `follow` re-issues the next hop itself - through the gateway again, where the new hop is scanned and policy-checked like any first request.
+The invariant that holds is per-hop policy, not "the sandbox never sees a follow"; both halves are pinned in `gateway.test.ts`.
+
+**Worker tests run one file at a time** (`fileParallelism: false` in `vitest.workers.config.ts`).
+The listener double is shared state, and the assertions worth the most are "the wire stayed silent" counts, which a concurrent file's legitimate probes would falsify.
+
+**The https-only rule has a config-borne exemption for tests.**
+No local double can be https on port 443, so `GATEWAY_INSECURE_HOSTS` exempts the loopback listener in the test config, production pins it to the empty string in `wrangler.jsonc`, and the insecure-transport denial is proved against a non-exempt host.
+An entry appearing in the production value is an alarm, not a feature.
