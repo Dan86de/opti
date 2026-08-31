@@ -8,6 +8,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { callTool, rpc } from "./support/mcp.ts";
+import { mintOwner, operator } from "./support/operator.ts";
 import { mintAccessToken } from "./support/token.ts";
 
 interface ToolsList {
@@ -123,6 +124,57 @@ describe("search", () => {
     // stops that lesson from being learned.
     const value = (result.structuredContent as { value: { hint?: string } }).value;
     expect(value.hint).toContain("add");
+  });
+
+  it("lists the owner's credentials in detail for fetch - names and hosts, never values", async () => {
+    const { accessToken, identity } = await mintOwner();
+    await operator("/admin/save-credential", { identity, name: "todoist", value: "todoist-secret-value" });
+    await operator("/admin/approve-host", { identity, credential: "todoist", host: "api.todoist.com" });
+
+    const result = await search(accessToken, { name: "fetch" });
+
+    // The moment of need is before code is written, which makes this a
+    // search-time answer: the agent learns what fetch can already reach.
+    expect(result.structuredContent).toMatchObject({
+      ok: true,
+      value: {
+        name: "fetch",
+        credentials: [{ name: "todoist", hosts: ["api.todoist.com"] }],
+      },
+    });
+    // The value that must not be present, anywhere in the response.
+    expect(JSON.stringify(result.structuredContent)).not.toContain("todoist-secret-value");
+  });
+
+  it("names the saved credentials in the empty result, so a missing capability is a starting point", async () => {
+    const { accessToken, identity } = await mintOwner();
+    await operator("/admin/save-credential", { identity, name: "todoist", value: "todoist-secret-value" });
+    await operator("/admin/approve-host", { identity, credential: "todoist", host: "api.todoist.com" });
+
+    const result = await search(accessToken, { query: "manage my todos" });
+
+    const value = (result.structuredContent as { value: { results: unknown[]; hint?: string } }).value;
+    expect(value.results).toStrictEqual([]);
+    expect(value.hint).toContain("todoist");
+    expect(value.hint).toContain("api.todoist.com");
+    expect(JSON.stringify(result.structuredContent)).not.toContain("todoist-secret-value");
+  });
+
+  it("keeps the slim list static: an owner's credentials do not grow the response paid on every turn", async () => {
+    const withCredentials = await mintOwner();
+    await operator("/admin/save-credential", {
+      identity: withCredentials.identity,
+      name: "todoist",
+      value: "todoist-secret-value",
+    });
+    const fresh = await mintAccessToken();
+
+    const listWithCredentials = await search(withCredentials.accessToken, {});
+    const listFresh = await search(fresh.accessToken, {});
+
+    // Detail for fetch is the one per-owner response; the slim list and
+    // tools/list stay identical for every owner, and under their ceiling.
+    expect(listWithCredentials.structuredContent).toStrictEqual(listFresh.structuredContent);
   });
 
   it("fails a detail request for something that does not exist, naming what does", async () => {

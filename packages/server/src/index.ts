@@ -20,6 +20,7 @@ import { Envelope, type Failure } from "./kernel/index.ts";
 import * as Transport from "./mcp/Transport.ts";
 import * as Registry from "./registry/Registry.ts";
 import * as Execute from "./runner/Execute.ts";
+import { vaultFor } from "./vault/OwnerVault.ts";
 
 // The seam. `globalOutbound` accepts only a Fetcher, so the gateway is a
 // WorkerEntrypoint on the main module, reached through `ctx.exports` with
@@ -125,8 +126,11 @@ const apiHandler = {
     // of the registry arrives with packages in Slice 3.
     const ownerId = owner.value;
     const origin = new URL(request.url).origin;
+    // Lazy on purpose: search only pays the vault read on the two responses
+    // that carry credentials - detail for fetch, and the empty result.
+    const credentials = Effect.promise(async () => await vaultFor(bindings.OWNER_VAULT, ownerId).listCredentials());
     const tools: readonly Transport.ServedTool[] = [
-      Transport.serve(Search.tool, (input) => Search.run(Registry.builtIns, input)),
+      Transport.serve(Search.tool, (input) => Search.run(Registry.builtIns, credentials, input)),
       Transport.serve(Execute.tool, (input) =>
         Execute.run(bindings, { ownerId, origin, gateway: ctx.exports.Gateway }, input),
       ),

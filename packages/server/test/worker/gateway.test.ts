@@ -19,41 +19,17 @@
  * pins that binding empty; the insecure-transport denial is proved here
  * against a non-exempt host.
  */
-import { env, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { LISTENER_ORIGIN } from "./support/listener-address.ts";
 import { callTool, ORIGIN } from "./support/mcp.ts";
-import { mintAccessToken } from "./support/token.ts";
+import { mintOwner, operator } from "./support/operator.ts";
 
-const OPERATOR_TOKEN = "test-operator-token";
 const VALUE = "todoist-secret-value-1234";
 
 const execute = (accessToken: string, code: string) => callTool(accessToken, "execute", { code });
 
 const connectionsSeen = async (): Promise<number> => Number(await (await fetch(`${LISTENER_ORIGIN}/count`)).text());
 const lastOnTheWire = async (): Promise<string> => await (await fetch(`${LISTENER_ORIGIN}/last`)).text();
-
-/**
- * An owner reachable both ways: an access token for the MCP surface, and an
- * identity mapping so the operator routes can address the same owner by
- * `github:<subject>`, the way a first login would have wired it.
- */
-let nextSubject = 880000;
-const mintOwner = async () => {
-  const { accessToken, ownerId } = await mintAccessToken();
-  const identity = `github:${nextSubject++}`;
-  await env.OAUTH_KV.put(`identity:${identity}`, ownerId);
-  return { accessToken, ownerId, identity };
-};
-
-const operator = async (path: string, body: unknown) => {
-  const response = await SELF.fetch(`${ORIGIN}${path}`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${OPERATOR_TOKEN}`, "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  expect(response.status).toBe(200);
-};
 
 /** The one module the whole journey reuses: deny, approve, then the same
  * request succeeds. The denial propagates uncaught on purpose, so what the

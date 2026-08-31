@@ -15,6 +15,7 @@
 import { Data, Effect, Schema } from "effect";
 import type { Failure } from "../kernel/index.ts";
 import type { Capability } from "../registry/Registry.ts";
+import type { CredentialMetadata } from "../vault/OwnerVault.ts";
 
 /** No entry under that name. Retrying the same name cannot help. */
 export class NoSuchCapability extends Data.TaggedError("NoSuchCapability")<{
@@ -106,16 +107,48 @@ export const slimList = (available: readonly Capability[], query: string | undef
     : { results };
 };
 
+/**
+ * How credentials appear anywhere in discovery: names and approved hosts,
+ * never values. One line per credential, already prose, so both users of it
+ * - the fetch detail and the empty-result hint - say it the same way.
+ */
+const describeCredentials = (credentials: readonly CredentialMetadata[]): string =>
+  credentials.length === 0
+    ? "no credentials are saved yet"
+    : `saved credentials: ${credentials
+        .map(
+          (entry) =>
+            `${entry.name} (approved for: ${entry.hosts.length === 0 ? "no hosts yet" : entry.hosts.join(", ")})`,
+        )
+        .join("; ")}`;
+
+/** Detail for `fetch` carries the owner's saved credential names with their
+ * approved hosts - the moment of need is before code is written, which makes
+ * this a search-time answer and not a runtime capability. */
+export interface DetailResponse extends Capability {
+  readonly credentials?: readonly CredentialMetadata[];
+}
+
 /** Detail is the whole record: the signature, the tags, the worked example. */
-export const detail = (available: readonly Capability[], name: string): Effect.Effect<Capability, NoSuchCapability> => {
+export const detail = (
+  available: readonly Capability[],
+  credentials: Effect.Effect<readonly CredentialMetadata[]>,
+  name: string,
+): Effect.Effect<DetailResponse, NoSuchCapability> => {
   const found = available.find((capability) => capability.name === name);
-  return found === undefined
-    ? Effect.fail(
-        new NoSuchCapability({
-          message: `nothing is named ${name}. What exists: ${available.map((capability) => capability.name).join(", ")}`,
-        }),
-      )
-    : Effect.succeed(found);
+  if (found === undefined) {
+    return Effect.fail(
+      new NoSuchCapability({
+        message: `nothing is named ${name}. What exists: ${available.map((capability) => capability.name).join(", ")}`,
+      }),
+    );
+  }
+  if (found.name !== "fetch") {
+    return Effect.succeed(found);
+  }
+  // The one per-owner detail response; the slim list and tools/list stay
+  // static and stay under their ceiling.
+  return credentials.pipe(Effect.map((saved): DetailResponse => ({ ...found, credentials: saved })));
 };
 
 export const parameters = Schema.Struct({
@@ -135,6 +168,24 @@ export const tool = {
 
 export const run = (
   available: readonly Capability[],
+  credentials: Effect.Effect<readonly CredentialMetadata[]>,
   input: typeof parameters.Type,
-): Effect.Effect<SlimResponse | Capability, NoSuchCapability> =>
-  "name" in input ? detail(available, input.name) : Effect.succeed(slimList(available, input.query));
+): Effect.Effect<SlimResponse | DetailResponse, NoSuchCapability> => {
+  if ("name" in input) {
+    return detail(available, credentials, input.name);
+  }
+  const slim = slimList(available, input.query);
+  if (slim.results.length > 0) {
+    return Effect.succeed(slim);
+  }
+  // An empty result is exactly the moment a missing capability should read
+  // as a starting point: name the primitives that exist, and the saved
+  // credentials with their approved hosts - names and hosts only, never
+  // values - so the agent knows what fetch can already reach.
+  return credentials.pipe(
+    Effect.map((saved) => ({
+      ...slim,
+      hint: `${slim.hint ?? "nothing matched"}. Also: ${describeCredentials(saved)}`,
+    })),
+  );
+};

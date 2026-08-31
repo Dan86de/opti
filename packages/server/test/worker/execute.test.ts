@@ -14,7 +14,7 @@
  * production.
  */
 import { describe, expect, it } from "vitest";
-import { add } from "../../src/registry/Registry.ts";
+import { add, fetchCapability } from "../../src/registry/Registry.ts";
 import { callTool, rpc } from "./support/mcp.ts";
 import { mintAccessToken } from "./support/token.ts";
 
@@ -31,6 +31,20 @@ describe("the walking skeleton", () => {
 
     expect(result.isError).toBeUndefined();
     expect(result.structuredContent).toMatchObject({ ok: true, value: { result: add.example.result } });
+  });
+
+  it("runs the fetch worked example too, and gets the denial it documents", async () => {
+    // Same rule as the add example: imported from the registry, not copied,
+    // so it cannot go stale without failing here. For a fresh owner - which
+    // is every owner the first time - the documented result is the
+    // UnknownCredential stop, which is itself the lesson the example
+    // teaches: a denial is typed, and the move is to stop and hand over.
+    const { accessToken } = await mintAccessToken();
+
+    const result = await execute(accessToken, fetchCapability.example.code);
+
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({ ok: true, value: { result: fetchCapability.example.result } });
   });
 
   it("advertises exactly search and execute, still under the ceiling", async () => {
