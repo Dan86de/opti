@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { slimList } from "../../src/discovery/Search.ts";
-import type { Capability } from "../../src/registry/Registry.ts";
+import type { Capability, PackageEntry } from "../../src/registry/Registry.ts";
 
 const capability = (name: string, summary: string): Capability => ({
   kind: "capability",
@@ -34,6 +34,41 @@ describe("ranking", () => {
     const { results } = slimList(entries, "add");
 
     expect(results.map((entry) => entry.name)).toStrictEqual(["add"]);
+  });
+});
+
+describe("the package tie-break", () => {
+  const pkg = (name: string, summary: string): PackageEntry => ({
+    kind: "package",
+    name,
+    summary,
+    exports: [{ name: "run", signature: "run(): Promise<unknown>" }],
+    importLine: `import { run } from "opti:packages/${name}";`,
+  });
+
+  it("ranks a package above a capability when both match equally", async () => {
+    // "When both match equally" is the whole rule: a tie-break, not a bonus.
+    const entries = [capability("todo-sync", "Sync todos."), pkg("todo-list", "Sync todos.")];
+
+    const { results } = slimList(entries, "todos");
+
+    expect(results.map((entry) => entry.name)).toStrictEqual(["todo-list", "todo-sync"]);
+  });
+
+  it("does not let a weak package match outrank a strong primitive match", async () => {
+    const entries = [pkg("helper", "Mentions adding in passing."), capability("add", "Add two numbers.")];
+
+    const { results } = slimList(entries, "add");
+
+    expect(results.map((entry) => entry.name)).toStrictEqual(["add", "helper"]);
+  });
+
+  it("puts packages first when nothing was asked, because everything ties at nothing", async () => {
+    const entries = [capability("add", "Add two numbers."), pkg("todoist", "List my todos.")];
+
+    const { results } = slimList(entries, undefined);
+
+    expect(results.map((entry) => entry.name)).toStrictEqual(["todoist", "add"]);
   });
 });
 
