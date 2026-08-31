@@ -19,6 +19,11 @@ import * as Registry from "./registry/Registry.ts";
 import * as Execute from "./runner/Execute.ts";
 import type * as Runner from "./runner/Runner.ts";
 
+// The seam. `globalOutbound` accepts only a Fetcher, so the gateway is a
+// WorkerEntrypoint on the main module, reached through `ctx.exports` with
+// props the host seals at isolate creation.
+export { Gateway } from "./gateway/Gateway.ts";
+
 /**
  * Everything the request path is allowed to reach.
  *
@@ -100,9 +105,12 @@ const apiHandler = {
     // Slice 1 resolves the same built-ins for every owner; the per-owner half
     // of the registry arrives with packages in Slice 3.
     const ownerId = owner.value;
+    const origin = new URL(request.url).origin;
     const tools: readonly Transport.ServedTool[] = [
       Transport.serve(Search.tool, (input) => Search.run(Registry.builtIns, input)),
-      Transport.serve(Execute.tool, (input) => Execute.run(bindings, ownerId, input)),
+      Transport.serve(Execute.tool, (input) =>
+        Execute.run(bindings, { ownerId, origin, gateway: ctx.exports.Gateway }, input),
+      ),
     ];
 
     return Effect.runPromise(Transport.handle(request, tools));

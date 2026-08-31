@@ -7,10 +7,12 @@
  * The isolate is named for the owner and the run, because `LOADER.get` caches
  * by name and the obvious warm-start optimisation - naming it after a hash of
  * the code - would put two owners in one isolate. The boundary is
- * `globalOutbound: null` plus the `env` that is never passed; `limits` is
- * passed and never relied on, per the spike finding that it does not bound a
- * busy loop. A fixed host-side timeout races the call instead: it stops the
- * waiting and does not claim to have stopped the isolate.
+ * `globalOutbound` plus the `env` that is never passed: since Slice 2 the
+ * outbound is the fetch gateway rather than `null`, so every way out of the
+ * isolate asks the gateway. `limits` is passed and never relied on, per the
+ * spike finding that it does not bound a busy loop. A fixed host-side timeout
+ * races the call instead: it stops the waiting and does not claim to have
+ * stopped the isolate.
  *
  * The sandbox's report is parsed with `Schema` rather than trusted. A
  * malformed body is likely and a lying one is not, because the code is the
@@ -187,19 +189,22 @@ export const run = (
   bindings: RunnerBindings,
   ownerId: Owner.OwnerId,
   modules: ModuleMap,
+  outboundFor: (runId: string) => Fetcher,
 ): Effect.Effect<RunOutcome, Failure.OptiError> =>
   Effect.gen(function* () {
     // Named for the owner and the run: no two runs share an isolate, and no
     // two owners can, whatever code they submitted.
-    const isolateName = `${ownerId}:${crypto.randomUUID()}`;
+    const runId = crypto.randomUUID();
+    const isolateName = `${ownerId}:${runId}`;
 
     const stub = bindings.LOADER.get(isolateName, () => ({
       compatibilityDate: COMPATIBILITY_DATE,
       mainModule: "main.js",
       modules,
       // The boundary. No env is passed, so there is no parent environment to
-      // reach; null outbound closes fetch, sockets and node:net in one gate.
-      globalOutbound: null,
+      // reach; the outbound Fetcher is the gateway, so fetch, sockets and
+      // node:net all ask one gate, and the gate applies policy.
+      globalOutbound: outboundFor(runId),
       limits: LIMITS,
     }));
 

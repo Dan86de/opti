@@ -2,6 +2,8 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "opti",
   "main": "src/index.ts",
+  // ctx.exports loopback bindings - the gateway seam - are default-on from
+  // compatibility date 2025-11-17, so they need no flag here.
   "compatibility_date": "2026-08-31",
   "compatibility_flags": ["nodejs_compat"],
   "observability": {

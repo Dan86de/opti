@@ -15,7 +15,6 @@
  */
 import { describe, expect, it } from "vitest";
 import { add } from "../../src/registry/Registry.ts";
-import { LISTENER_ORIGIN } from "./support/listener-address.ts";
 import { callTool, rpc } from "./support/mcp.ts";
 import { mintAccessToken } from "./support/token.ts";
 
@@ -152,25 +151,11 @@ describe("what goes wrong inside the module", () => {
 });
 
 describe("the boundary", () => {
-  it("lets nothing out: a fetch fails and the listener records no connection", async () => {
-    const { accessToken } = await mintAccessToken();
-
-    // The control: the listener is reachable from this test's own context, so
-    // the denial below is a boundary and not a missing network. The granted
-    // half of the control - all three egress paths reaching this listener
-    // when outbound is allowed - lives in sandbox-egress.test.ts.
-    const before = Number(await (await fetch(`${LISTENER_ORIGIN}/count`)).text());
-
-    const result = await execute(
-      accessToken,
-      `export default async () => { await fetch("${LISTENER_ORIGIN}/from-sandbox"); return "reached"; };`,
-    );
-
-    expect(result.isError).toBe(true);
-    // The error message is the sandbox's account of itself; the count is the
-    // listener's. Only the count proves the request never left.
-    expect(Number(await (await fetch(`${LISTENER_ORIGIN}/count`)).text())).toBe(before);
-  });
+  // Since Slice 2 the outbound is the gateway rather than null, so "lets
+  // nothing out" became "everything that gets out went through the seam".
+  // That boundary - fetch flowing through the gateway, sockets and node:net
+  // still dead, the worker's own origin refused - lives in
+  // gateway-seam.test.ts.
 
   it("does not share an isolate between two owners running identical code", async () => {
     // LOADER.get caches by name, and the tempting warm-start optimisation is
