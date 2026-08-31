@@ -117,7 +117,8 @@ The test carries its own control on purpose: without something reachable to not 
 
 ## The gateway seam: what Slice 2 established
 
-Established on 2026-08-31, locally, in `packages/server/test/worker/gateway-seam.test.ts` and `gateway.test.ts`; the same probes have not yet been run against the deployed worker, and local and production have disagreed before.
+Established on 2026-08-31, locally, in `packages/server/test/worker/gateway-seam.test.ts` and `gateway.test.ts`.
+Confirmed on production the same day, through a real MCP host driving the deployed runner: a control fetch succeeded, `cloudflare:sockets` and `node:net` were both refused (Cloudflare's loader words it *proxy request failed, cannot connect to the specified address*), the own-origin fetch came back as the marked `OwnOriginRefused` denial - which is also the proof that the sealed props survive on the production loader - and the parent environment was still empty.
 
 **`ctx.exports` loopback bindings are default-on** from compatibility date 2025-11-17, so the seam needs no compatibility flag.
 The runner passes `ctx.exports.Gateway({ props: { ownerId, runId, origin } })` as the loaded isolate's `globalOutbound`, and the props arrive at the gateway intact - proved through behaviour (the own-origin refusal and per-owner policy), not through an echo endpoint.
