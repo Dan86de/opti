@@ -68,6 +68,30 @@ A real MCP host completes the authorize flow, and "ask OPTI what it can do, then
 The tool surface, transport and identity, the isolate, and what the sandbox can import.
 There is no product yet, which is the point.
 
+**Open questions.**
+Added after the Worker Loader spike on 2026-08-31, which ran against miniflare locally and confirmed the binding on a production Paid account.
+These are not settled by this spec and each one has to be closed inside Slice 1, because each one is about the isolate or about what the sandbox can reach.
+
+1. Whether anything bounds a runaway isolate.
+   `limits: { cpuMs: 50 }` did not bound a busy loop locally.
+   workerd crashed, miniflare restarted it, and the run never terminated, so locally a module that loops forever does take the server down, which is the inverse of the user story that asks for the opposite.
+   Answered by loading a runaway isolate through the deployed loader once the runner exists and can be guarded.
+   If production behaves the way local did, the runaway backstop is not `limits` and something else has to hold that floor.
+
+2. What the sandbox can reach that the module map did not grant.
+   A loaded isolate imports `node:` builtins even when it declares no compatibility flags.
+   The rule that an ungranted capability fails at the import line holds for the virtual module, but the reachable set is wider than the module map, so the virtual module is a grant list and not a boundary.
+   Whether that set should be narrowed, and whether it can be, is unsettled.
+   This one is squarely Slice 1's business, because what the sandbox can import is what Slice 1 claims to prove.
+
+3. Whether a bundler is needed at all.
+   `@cloudflare/worker-bundler` resolves npm dependencies and returns the module map Worker Loader expects, which may already be the answer to the note recorded under the risks.
+   Whether it runs inside a Worker is unverified, and the same note says a native bundler cannot.
+
+4. What the revisit trigger for the Worker Loader bet actually is.
+   The bet is recorded with a revisit trigger that is never stated.
+   The binding is now confirmed on production rather than assumed, so the bet is narrower than it was, and what would make it worth reopening should be named while the reasoning is still fresh.
+
 ### Slice 2: credential boundary
 
 `fetch` in the virtual module, routed out through the gateway.
@@ -379,6 +403,8 @@ These were surfaced during the architecture review and are not settled by this s
 2. Whether a remote MCP server's tools can be resolved before the virtual module is generated, so that import-time failure survives.
 3. Whether acting as another server's MCP client forces owner-local connection state, and whether that is a different question from our own inbound surface being stateless.
 4. Whether `packages` ever acquires a network path, which would be the signal it has stopped being lifecycle.
+
+Slice 1 carries four more of its own, listed with that slice, surfaced by the Worker Loader spike rather than by the review.
 
 ### Vocabulary
 
