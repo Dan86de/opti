@@ -76,7 +76,7 @@ If a deploy did not come from `main`, the running code is not the code anyone ca
 ## Worker Loader: what the spike established
 
 Run on 2026-08-31 against miniflare's loader, in `packages/server/test/worker/loader.test.ts`, and confirmed as a binding on production.
-What the spike left unanswered is written up as the open questions under Slice 1 in `spec.md`; this section is the evidence, that list is the work.
+What the spike left unanswered was closed in the Slice 1 interview on 2026-08-31 and is written up under Slice 1 in `spec.md`; this section is the evidence, that section is the work.
 The spec names Worker Loader as the most load-bearing dependency in the system and as a recorded bet rather than an assumption, so this is the record of what it actually did.
 
 The binding delivers what the platform choice was made for, on one binding:

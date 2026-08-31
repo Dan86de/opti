@@ -68,29 +68,91 @@ A real MCP host completes the authorize flow, and "ask OPTI what it can do, then
 The tool surface, transport and identity, the isolate, and what the sandbox can import.
 There is no product yet, which is the point.
 
-**Open questions.**
-Added after the Worker Loader spike on 2026-08-31, which ran against miniflare locally and confirmed the binding on a production Paid account.
-These are not settled by this spec and each one has to be closed inside Slice 1, because each one is about the isolate or about what the sandbox can reach.
+**Decisions.**
+Taken on 2026-08-31, in the interview that closed the four open questions the Worker Loader spike had left.
+They are recorded here because a later reader would otherwise have to re-derive each one from the code.
 
-1. Whether anything bounds a runaway isolate.
-   `limits: { cpuMs: 50 }` did not bound a busy loop locally.
-   workerd crashed, miniflare restarted it, and the run never terminated, so locally a module that loops forever does take the server down, which is the inverse of the user story that asks for the opposite.
-   Answered by loading a runaway isolate through the deployed loader once the runner exists and can be guarded.
-   If production behaves the way local did, the runaway backstop is not `limits` and something else has to hold that floor.
+**Transport.**
+Stateless MCP over HTTP, written against `unstable/http` rather than `McpServer.layerHttp`.
+`layerHttp` keeps sessions in an in-memory map, issues an `mcp-session-id` on initialize, rejects any non-initialize request that omits it, and returns 404 for a session id it does not hold.
+On Workers that map lives in an isolate that can be evicted between requests, so a well-behaved host would be told to start over at unpredictable moments.
+OPTI issues no session id at all, which the protocol permits, so the 404 path does not exist.
+`Schema` and `Tool` are still used for the tool definitions; only the transport shell is ours.
 
-2. What the sandbox can reach that the module map did not grant.
-   A loaded isolate imports `node:` builtins even when it declares no compatibility flags.
-   The rule that an ungranted capability fails at the import line holds for the virtual module, but the reachable set is wider than the module map, so the virtual module is a grant list and not a boundary.
-   Whether that set should be narrowed, and whether it can be, is unsettled.
-   This one is squarely Slice 1's business, because what the sandbox can import is what Slice 1 claims to prove.
+**Identity.**
+GitHub is the upstream login, and it is deliberately unrelated to any service OPTI will later hold a credential for, so that a login session and a saved credential stay two separate grants.
+The owner id is opaque and generated, never a provider subject, because welding identity to a provider makes a second provider a migration.
+A mapping from `(provider, subject)` to the owner id lives in the OAuth provider's KV, which is the pre-authentication exception the storage placement section already names.
+The grant seals the opaque owner id, so linking a second provider later does not invalidate a token already issued.
+Identities are never linked by email address: providers hand out unverified addresses, so linking is an explicit act taken while already authenticated as an existing owner.
+Minting a new owner id is gated by an allowlist held as a secret, because dynamic client registration in front of a public upstream login otherwise hands an isolate to anyone who asks.
+There are no scopes, because a field set on every grant carries no signal.
+The authorize screen leads with the redirect URI's origin rather than the client's self-declared name, which is the only part of a dynamically registered client an attacker does not choose.
 
-3. Whether a bundler is needed at all.
-   `@cloudflare/worker-bundler` resolves npm dependencies and returns the module map Worker Loader expects, which may already be the answer to the note recorded under the risks.
-   Whether it runs inside a Worker is unverified, and the same note says a native bundler cannot.
+**The tool surface.**
+Slice 1 ships `search` and `execute`; `packages` arrives in Slice 3 with something behind it.
+Three is the ceiling and a fourth is the tripwire, but advertising a tool that always fails teaches a model that the server is broken.
+`search({ query })` returns the slim list, `search({ name })` returns detail, and `search({})` returns everything ranked, so asking for the full list needs no third mode.
+A bounded list carries a truncation marker, because a silently cut list teaches a model that the missing thing does not exist.
+An empty result names the primitives that do exist rather than returning nothing.
+The slim response and the `tools/list` response each have a 2KB ceiling, asserted in a test, because the tool list is paid on every conversation whether or not OPTI is used.
+Error tags appear in detail only, since they are the field most likely to blow the ceiling as capabilities accumulate.
+Every worked example in a detail response is a live test fixture, because a stale example is worse than no example: it is the part a model copies most literally.
 
-4. What the revisit trigger for the Worker Loader bet actually is.
-   The bet is recorded with a revisit trigger that is never stated.
-   The binding is now confirmed on production rather than assumed, so the bet is narrower than it was, and what would make it worth reopening should be named while the reasoning is still fresh.
+**Execute.**
+The runner generates the entry module, and the model writes `submitted.js`, a default-exported async function returning a JSON-serializable value.
+Putting the model's code in its own module keeps two failure modes apart: an ungranted import or a syntax error fails at import, before any statement runs, and a bug fails inside the call.
+The generated entry catches, reads the tag off whatever was thrown, shadows `console.*` to collect logs, and serialises the envelope itself, because a rejected `fetch` on the host side leaves nothing but a message string.
+The host parses that body with `Schema` rather than trusting its shape; a malformed body is likely and a lying one is not, because the code is the owner's own agent writing to the owner.
+`execute` takes code and nothing else, so there is no second path for data to reach the sandbox before anything needs one.
+A failure crosses the MCP surface as a tool result carrying the envelope, with `isError` mirroring `ok`.
+JSON-RPC errors are reserved for protocol faults, because a host that sees one may surface it as a malfunction and never hand the payload to the model, which deletes the retry classification and the approval link that Slice 2 depends on.
+An oversized result is a failure and is never truncated; oversized logs are truncated with a marker naming what was dropped.
+That asymmetry is deliberate: a model reasoning over a result that quietly lost its tail is confidently wrong, while a run that succeeded should not be failed for being chatty.
+
+**The isolate.**
+It is named for the owner and the run, so no two runs share one and no two owners can.
+`LOADER.get` caches by name, and the obvious warm-start optimisation is to name it after a hash of the code, which would put two owners in one isolate whose `globalOutbound` belongs to whoever arrived first.
+The negative assertion that two owners running identical code do not share an isolate is what fails on the day someone tries it.
+`limits` is passed and is never relied on.
+A fixed host-side timeout races the sandbox call and returns a timeout failure, which stops the waiting and does not claim to have stopped the isolate.
+The boundary is `globalOutbound` plus the absent `env`, and not the module map.
+The virtual module is a grant list rather than a boundary: `node:` builtins are reachable, rejecting the specifier statically is defeated by a computed dynamic import, and `LOADER.get` offers no way to deny them.
+The residual, stated so nobody later assumes otherwise: the sandbox can compute anything, read `node:` builtins and burn CPU; it cannot reach the parent environment, and it cannot reach the network except through the seam.
+
+**Environment configuration arrives through the bindings interface**, the upstream's base URL included, so the deployed worker contains no test-only code path and the difference between local and production is visible in configuration rather than in a conditional.
+
+**Testing.**
+Tokens are minted directly with `getOAuthApi().completeAuthorization()` for the tests about the MCP surface, so an assertion about a size ceiling does not pay for an OAuth dance.
+One test drives the authorize path end to end against a doubled upstream, which is where the allowlist, the identity mapping and the props sealing live.
+That double proves our callback handles a GitHub-shaped response and not that GitHub sends one, which is the shortcut to write at the test.
+The real round trip is verified by hand, which is what the done-when describes: a person clicking approve in a real host.
+
+**Build order inside the slice.**
+The socket-escape test first, because it is a test file rather than an endpoint and because it is the one finding that would stop the slice.
+Then OAuth and identity, so nothing is ever reachable unauthenticated.
+Then the MCP surface and `search`, then the runner and the virtual module builder, then deploy and run the production runaway experiment.
+
+**Still open, and how each closes.**
+
+1. Whether anything reaches the network without passing `globalOutbound`.
+   With `globalOutbound: null`, `fetch`, `cloudflare:sockets` `connect()` and `node:net.createConnection` must all fail to reach the network.
+   If one escapes, Slice 1 stops: the credential boundary cannot be built where the spec puts it, and Slice 2 has no floor under it.
+
+2. Whether a runaway kills the invocation or the host.
+   That is the question, and not whether `cpuMs` bounds a busy loop.
+   Answered by loading a runaway through the deployed loader once the runner exists and the timeout guards it.
+   If production behaves the way local did, Slice 1 ships with a known hole, written down, and the daily ceiling in Slice 2 is what limits how often it is reached.
+
+**Closed by not needing an answer.**
+No bundler in Slice 1: one hardcoded capability, no bare npm specifiers, and Worker Loader already resolves imports among the map's own members.
+Whether `@cloudflare/worker-bundler` runs inside a Worker stays unverified on purpose, and the trigger to find out is the first sandbox module with a bare specifier.
+
+**The Worker Loader bet, with its revisit trigger named.**
+Every alternative is a platform migration rather than a swap, so the bar is where the platform stops delivering something this spec treats as non-negotiable.
+Reopen the bet if egress escapes `globalOutbound` with no way to close it; if a runaway takes down the host, measured on production, with no configuration that bounds the blast radius to one invocation; or if the feature's availability moves against us, by being withdrawn from open beta without going GA, gated behind a plan we are not on, or priced so that a fresh isolate per execution stops being viable.
+`limits` being unreliable while the invocation still dies alone is not that trigger, and neither is cold start being slower than we would like, nor needing a bundler.
+Reviewed at the start of Slice 3, which is already a moment the spec asks you to look up from the code.
 
 ### Slice 2: credential boundary
 
@@ -201,7 +263,7 @@ At one owner that is nearly free, so the trigger to act on is not a felt perform
 ### Platform and language
 
 Cloudflare Workers, chosen because Worker Loader delivers three of the four one-way doors in a single binding: the isolate, control over what bindings the loaded worker receives, and the module map.
-Worker Loader is open beta on the paid plan; this is a recorded bet with its own revisit trigger.
+Worker Loader is open beta on the paid plan; this is a recorded bet, and its revisit trigger is named under Slice 1.
 
 Effect on the host.
 Plain `async`/`await` TypeScript inside the sandbox, because the capability boundary serializes, so an effect runtime in the isolate would pay full cost for no shared context, and because models write plain promises far more reliably.
@@ -380,7 +442,8 @@ The one convention to establish deliberately on the first commit: negative asser
 
 **Worker Loader is open beta.**
 The most load-bearing dependency in the system is not generally available.
-Recorded as a bet with a revisit trigger rather than assumed away.
+Spiked on 2026-08-31 and confirmed as a binding on production, so the bet is narrower than it was.
+The trigger that would reopen it is named under Slice 1 rather than left as an intention.
 
 **Type checking at publish requires the compiler to run inside a Worker.**
 TypeScript is pure JavaScript so it will run, but it is a large dependency against the script size limit, and a written decision already depends on it.
@@ -388,6 +451,7 @@ TypeScript is pure JavaScript so it will run, but it is a large dependency again
 **Sandbox bundling may not be needed at all.**
 Worker Loader takes a module map and resolves imports among its members, so a multi-file package may need no bundler.
 Verify before choosing one, and note that a native bundler cannot run in a Worker regardless.
+Slice 1 needs none, so the question is deferred rather than answered, and the trigger to answer it is the first sandbox module with a bare npm specifier.
 
 ### Accepted residual risks
 
@@ -404,7 +468,8 @@ These were surfaced during the architecture review and are not settled by this s
 3. Whether acting as another server's MCP client forces owner-local connection state, and whether that is a different question from our own inbound surface being stateless.
 4. Whether `packages` ever acquires a network path, which would be the signal it has stopped being lifecycle.
 
-Slice 1 carries four more of its own, listed with that slice, surfaced by the Worker Loader spike rather than by the review.
+The four Slice 1 carried, surfaced by the Worker Loader spike rather than by the review, were closed on 2026-08-31.
+What replaced them is written with that slice: two of them became decisions, one became an experiment that stops the slice if it fails, and one became an experiment whose bad answer ships as a hole with the Slice 2 ceiling under it.
 
 ### Vocabulary
 
