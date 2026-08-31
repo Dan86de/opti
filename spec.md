@@ -142,12 +142,14 @@ Then the MCP surface and `search`, then the runner and the virtual module builde
    Answered locally on 2026-08-31 in `packages/server/test/worker/sandbox-egress.test.ts`, and the answer is that nothing does.
    With `globalOutbound: null`, `fetch`, `cloudflare:sockets` `connect()` and `node:net.createConnection` are refused by workerd with one message, and a listener on the other side records no connection.
    The same three paths reach that listener when outbound is granted, which is the control that makes the denial mean something.
-   What remains is running the same file against Cloudflare's loader rather than miniflare's, which happens at the deploy step alongside the runaway experiment.
+   On production, confirmed for the `fetch` path on 2026-08-31 through a real MCP host driving the deployed runner: Cloudflare's loader refuses it with workerd's "not permitted to access the internet" message.
+   The socket paths are proved locally only; they ask the same gate, but that remains an inference about production rather than an observation.
 
 2. Whether a runaway kills the invocation or the host.
-   That is the question, and not whether `cpuMs` bounds a busy loop.
-   Answered by loading a runaway through the deployed loader once the runner exists and the timeout guards it.
-   If production behaves the way local did, Slice 1 ships with a known hole, written down, and the daily ceiling in Slice 2 is what limits how often it is reached.
+   Answered on production on 2026-08-31, through a real MCP host driving the deployed runner, and the answer is the good one: the invocation dies alone.
+   Cloudflare's loader rejected `while (true) {}` with "Worker exceeded CPU time limit.", the host kept serving, and the next execution got a fresh isolate.
+   Production therefore behaves the opposite of local, where the spike recorded workerd crashing under miniflare; both halves are written at the skipped test in `loader.test.ts`.
+   The runner classifies that rejection as `CpuTimeExceeded`, retry `never`, because its first appearance wore the `SandboxUnavailable` infra tag and invited a retry of an infinite loop.
 
 **Closed by not needing an answer.**
 No bundler in Slice 1: one hardcoded capability, no bare npm specifiers, and Worker Loader already resolves imports among the map's own members.

@@ -63,6 +63,39 @@ export class SandboxUnavailable extends Data.TaggedError("SandboxUnavailable")<{
   readonly retry: Failure.Retry = "now";
 }
 
+/**
+ * The platform stopped the run for burning its whole CPU budget. The code's
+ * fault, not ours, and repeating the same code cannot help - which is exactly
+ * what the tag and the classification must say, because the first production
+ * runaway came back as `SandboxUnavailable`/`now` and read as an infra fault
+ * inviting a retry of an infinite loop.
+ */
+export class CpuTimeExceeded extends Data.TaggedError("CpuTimeExceeded")<{
+  readonly message: string;
+}> {
+  readonly retry: Failure.Retry = "never";
+}
+
+/**
+ * Classify a rejected sandbox call.
+ *
+ * SHORTCUT, recorded here because there is nowhere better: the only signal is
+ * workerd's message string, so this matches on it. Observed on production on
+ * 2026-08-31: "Error: Worker exceeded CPU time limit." - which is also the
+ * production answer to the spec's runaway question, since the invocation died
+ * alone and the host kept serving. Under miniflare this branch is unreachable
+ * (a busy loop crashes workerd instead of rejecting), so it is proved in a
+ * unit test rather than a worker test.
+ */
+export const rejectionFailure = (cause: unknown): CpuTimeExceeded | SandboxUnavailable =>
+  /exceeded CPU time limit/i.test(String(cause))
+    ? new CpuTimeExceeded({
+        message:
+          "the run burned its whole CPU budget and was stopped by the platform. " +
+          "Repeating the same code cannot help; make it do less work.",
+      })
+    : new SandboxUnavailable({ message: `the sandbox could not be reached: ${String(cause)}` });
+
 /** The sandbox answered with something the report schema refuses. */
 export class MalformedSandboxReport extends Data.TaggedError("MalformedSandboxReport")<{
   readonly message: string;
@@ -153,7 +186,7 @@ export const run = (
 
     const response = yield* Effect.tryPromise({
       try: () => stub.getEntrypoint().fetch("https://sandbox.invalid/"),
-      catch: (cause) => new SandboxUnavailable({ message: `the sandbox could not be reached: ${String(cause)}` }),
+      catch: rejectionFailure,
     }).pipe(
       Effect.timeout(Number(bindings.EXECUTE_TIMEOUT_MS)),
       Effect.catchTag(

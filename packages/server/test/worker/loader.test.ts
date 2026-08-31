@@ -121,17 +121,21 @@ describe("worker loader", () => {
     expect(await call(survivor)).toStrictEqual({ status: 200, body: "still here" });
   });
 
-  // SPIKE FINDING, 2026-08-31. This is the one invariant the loader did NOT
-  // deliver locally, so it is named here rather than left to be discovered.
+  // SPIKE FINDING, 2026-08-31, with its production counterpart now known.
   //
-  // A module that busy-loops is not bounded by `limits: { cpuMs: 50 }` under
-  // miniflare. workerd crashes, miniflare restarts it ("The Workers runtime
-  // crashed unexpectedly and is being restarted"), and the vitest run never
-  // terminates - where an ordinary run of this file takes about three seconds.
-  // So locally, a module that loops forever DOES take the server down.
+  // Locally, a module that busy-loops is not bounded by `limits: { cpuMs }`:
+  // workerd crashes, miniflare restarts it ("The Workers runtime crashed
+  // unexpectedly and is being restarted"), and the vitest run never
+  // terminates. So locally, a module that loops forever DOES take the server
+  // down - which is why this stays skipped: running it here hangs the suite.
   //
-  // Unskip when checking this against Cloudflare's loader on the paid plan.
-  // Until something bounds it, the runaway backstop cannot be `limits` alone.
+  // On production the answer is the opposite, observed 2026-08-31 through a
+  // real MCP host driving the deployed runner: Cloudflare's loader rejects
+  // the call with "Worker exceeded CPU time limit.", the invocation dies
+  // alone, the host keeps serving, and the next run gets a fresh isolate.
+  // The runner classifies that rejection; see `rejectionFailure`. What
+  // `limits` is worth locally and in production is therefore different, and
+  // both halves are written down.
   it.skip("bounds a module that loops forever", async () => {
     const stub = env.LOADER.get("runaway", () => ({
       compatibilityDate: COMPATIBILITY_DATE,

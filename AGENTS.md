@@ -96,11 +96,11 @@ Two findings that change how code gets written:
 `modules: { "opti:capabilities": "..." }` is rejected with *Module name must end with '.js' or '.py'*.
 Use the object form, `{ js: "..." }`, which is what allows the virtual module to keep a greppable specifier instead of a filename.
 
-**`limits.cpuMs` does not bound a busy loop locally, and the runtime crashes.**
-workerd crashes, miniflare restarts it, and the run never terminates.
-Locally, a module that loops forever *does* take the server down, which is the opposite of what the user story asks for.
-The test is skipped with this written on it.
-Until something bounds it, the runaway backstop cannot be `limits` alone.
+**`limits.cpuMs` does not bound a busy loop locally, and the runtime crashes - but production bounds it.**
+Locally, workerd crashes, miniflare restarts it, and the run never terminates: a module that loops forever *does* take the local server down, so the test stays skipped with this written on it.
+On production, observed 2026-08-31 through a real MCP host driving the deployed runner, Cloudflare's loader rejects the call with *Worker exceeded CPU time limit.*, the invocation dies alone, and the host keeps serving.
+The runner classifies that rejection as `CpuTimeExceeded`, retry `never`; see `rejectionFailure` in `src/runner/Runner.ts`.
+The two environments disagree, and the disagreement itself is the recorded fact: never let a local run of a runaway "check" this again.
 
 **The sandbox can import `node:` builtins** even when the loaded worker declares no compatibility flags.
 What the sandbox can reach is therefore wider than the module map.
