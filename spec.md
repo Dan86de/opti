@@ -128,6 +128,8 @@ Tokens are minted directly with `getOAuthApi().completeAuthorization()` for the 
 One test drives the authorize path end to end against a doubled upstream, which is where the allowlist, the identity mapping and the props sealing live.
 That double proves our callback handles a GitHub-shaped response and not that GitHub sends one, which is the shortcut to write at the test.
 The real round trip is verified by hand, which is what the done-when describes: a person clicking approve in a real host.
+Done on 2026-08-31 against the deployed worker: registration, the consent screen, GitHub itself, and the redirect back to the client carrying an authorization code.
+That is the half the double cannot prove, and it is now proved once rather than assumed; the double covers it on every run from here.
 
 **Build order inside the slice.**
 The socket-escape test first, because it is a test file rather than an endpoint and because it is the one finding that would stop the slice.
