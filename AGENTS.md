@@ -61,6 +61,18 @@ Two runners, and putting a test in the wrong one means it proved less than it lo
 Local development attaches every binding for real, including the loader and the gateway.
 Write down every shortcut a non-production run takes, at the test, so the difference between local and production is visible rather than assumed.
 
+## Deploying
+
+Local and production only, and one deployable through slice 3.
+There is no preview environment: per the spec it arrives with new durable object classes rather than transferred ones, so a preview can never reach production state.
+
+Production deploys happen from CI on a push to `main`, gated behind the lint, typecheck and test job.
+Nothing deploys off a red build.
+The deploy needs two repository secrets, `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+
+`wrangler deploy` from a laptop is for checking something, not for shipping.
+If a deploy did not come from `main`, the running code is not the code anyone can read.
+
 ## Worker Loader: what the spike established
 
 Run on 2026-08-31 against miniflare's loader, in `packages/server/test/worker/loader.test.ts`.

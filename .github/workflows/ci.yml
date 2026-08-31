@@ -30,7 +30,7 @@ jobs:
         uses: pnpm/action-setup@v4
 
       - name: Setup Node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
@@ -46,3 +46,43 @@ jobs:
 
       - name: Run tests
         run: pnpm test
+
+  deploy:
+    name: deploy
+    # Never deploy off a red build. This is the only gate between main and
+    # production, because there is exactly one deployable through slice 3.
+    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            /*
+            !/repos
+          sparse-checkout-cone-mode: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: packages/server
+          packageManager: pnpm
+          # Use the wrangler pinned in the lockfile, not a floating one, so a
+          # deploy and a local dry-run are the same program.
+          wranglerVersion: "4.127.1"
