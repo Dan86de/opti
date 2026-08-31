@@ -47,13 +47,13 @@ describe("the walking skeleton", () => {
     expect(result.structuredContent).toMatchObject({ ok: true, value: { result: fetchCapability.example.result } });
   });
 
-  it("advertises exactly search and execute, still under the ceiling", async () => {
+  it("advertises exactly search, execute and packages, still under the ceiling", async () => {
     const { accessToken } = await mintAccessToken();
 
     const listed = (await rpc(accessToken, "tools/list", {})) as { tools: { name: string }[] };
 
-    // Two tools in Slice 1, three is the ceiling, a fourth is the tripwire.
-    expect(listed.tools.map((tool) => tool.name).sort()).toStrictEqual(["execute", "search"]);
+    // Three tools since Slice 3. Three is the ceiling, a fourth is the tripwire.
+    expect(listed.tools.map((tool) => tool.name).sort()).toStrictEqual(["execute", "packages", "search"]);
     expect(new TextEncoder().encode(JSON.stringify(listed)).length).toBeLessThanOrEqual(2048);
   });
 });
