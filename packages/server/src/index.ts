@@ -24,6 +24,9 @@ import type * as Runner from "./runner/Runner.ts";
 // props the host seals at isolate creation.
 export { Gateway } from "./gateway/Gateway.ts";
 
+// The owner vault, one per owner: credentials, host policy, daily counters.
+export { OwnerVault } from "./vault/OwnerVault.ts";
+
 /**
  * Everything the request path is allowed to reach.
  *

@@ -31,6 +31,8 @@ export default defineProject({
           GITHUB_CLIENT_ID: UPSTREAM_CLIENT_ID,
           GITHUB_CLIENT_SECRET: UPSTREAM_CLIENT_SECRET,
           OWNER_ALLOWLIST: "github:4242, github:4243",
+          // The vault's cipher secret, a worker secret in production.
+          CREDENTIAL_KEY: "test-credential-key-with-enough-entropy",
           // Overridden down so the timeout test waits two seconds, not ten.
           // The hung run it abandons idles on a promise rather than burning
           // CPU, which under miniflare would crash workerd (the recorded

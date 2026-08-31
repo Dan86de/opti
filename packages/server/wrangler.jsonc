@@ -37,5 +37,14 @@
       "binding": "OAUTH_KV",
       "id": "431d14eada56489b9602cf650efed706"
     }
-  ]
+  ],
+
+  // The owner vault: one durable object per owner, holding the credential
+  // store, the host policy and the daily counters. The first durable object
+  // in the system, which is what makes the deployment-split trigger live -
+  // a deploy of this script restarts these objects.
+  "durable_objects": {
+    "bindings": [{ "name": "OWNER_VAULT", "class_name": "OwnerVault" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["OwnerVault"] }]
 }

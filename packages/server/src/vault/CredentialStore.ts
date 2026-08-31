@@ -15,6 +15,7 @@
  * existing rows.
  */
 import { Data, Effect } from "effect";
+import { NAME_PATTERN } from "../gateway/Placeholder.ts";
 import type { Failure } from "../kernel/index.ts";
 
 const VERSION = "v1";
@@ -91,4 +92,56 @@ export const decrypt = (secret: string, ownerId: string, stored: string): Effect
       // The message names the invariant, not the cause: see the class doc.
       catch: () => new DecryptFailed({ message: "the row would not decrypt for this owner" }),
     });
+  });
+
+/** A name the placeholder protocol cannot spell is a credential no run could
+ * ever use, so it is refused at the door rather than saved and unreachable. */
+export class InvalidCredentialName extends Data.TaggedError("InvalidCredentialName")<{
+  readonly message: string;
+}> {
+  readonly retry: Failure.Retry = "never";
+}
+
+const rowKey = (name: string) => `credential:${name}`;
+
+/**
+ * The write path. Exported to the vault's admin surface and to nothing else,
+ * like the host policy's `approve`; the import-boundary test holds the line.
+ * Overwrites silently, because rotating a token is the expected use.
+ */
+export const put = (
+  storage: DurableObjectStorage,
+  secret: string,
+  ownerId: string,
+  name: string,
+  value: string,
+): Effect.Effect<void, InvalidCredentialName> =>
+  Effect.gen(function* () {
+    if (!NAME_PATTERN.test(name)) {
+      return yield* new InvalidCredentialName({
+        message: `a credential name matches [a-z0-9._-]+ so a placeholder can spell it; ${JSON.stringify(name)} does not`,
+      });
+    }
+    const ciphertext = yield* encrypt(secret, ownerId, value);
+    yield* Effect.promise(() => storage.put(rowKey(name), ciphertext));
+  });
+
+/** Names only. The values have a single reader, and this is not it. */
+export const listNames = (storage: DurableObjectStorage): Effect.Effect<readonly string[]> =>
+  Effect.promise(async () => {
+    const rows = await storage.list<string>({ prefix: "credential:" });
+    return [...rows.keys()].map((key) => key.slice("credential:".length)).sort();
+  });
+
+/** The decrypting read. `undefined` for a name that was never saved, which
+ * the caller distinguishes from a row that refused to decrypt. */
+export const get = (
+  storage: DurableObjectStorage,
+  secret: string,
+  ownerId: string,
+  name: string,
+): Effect.Effect<string | undefined, DecryptFailed> =>
+  Effect.gen(function* () {
+    const stored = yield* Effect.promise(() => storage.get<string>(rowKey(name)));
+    return stored === undefined ? undefined : yield* decrypt(secret, ownerId, stored);
   });
