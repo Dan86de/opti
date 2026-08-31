@@ -32,6 +32,18 @@
     "crypto": "./src/publish/node-shims/crypto.ts"
   },
 
+  // The same compiler init also reads the CommonJS `__filename`/`__dirname`
+  // globals, which wrangler's esbuild leaves bare in a worker bundle - the
+  // deployed publish died on "__filename is not defined" while the test
+  // pool's optimizer injects its own shims, a recorded local/production
+  // disagreement. The values are virtual: ts.sys only ever compares against
+  // and joins them, and the publish compile reads nothing outside its
+  // virtual file system.
+  "define": {
+    "__filename": "\"/in-worker-typescript/typescript.js\"",
+    "__dirname": "\"/in-worker-typescript\""
+  },
+
   // The upstream login's public endpoints. Vars rather than secrets because
   // they are neither: they are the two GitHub origins, and having them arrive
   // through the door is what lets a doubled upstream be reached the same way
