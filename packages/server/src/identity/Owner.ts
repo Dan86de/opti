@@ -57,6 +57,34 @@ export class OwnerStoreUnavailable extends Data.TaggedError("OwnerStoreUnavailab
   readonly retry: Failure.Retry = "now";
 }
 
+/**
+ * A grant reached the API surface without an owner id sealed into it. Nothing
+ * the caller retries will help; the fix is to authorize again so the login
+ * seals one.
+ */
+export class GrantWithoutOwner extends Data.TaggedError("GrantWithoutOwner")<{
+  readonly message: string;
+}> {
+  readonly retry: Failure.Retry = "never";
+}
+
+/**
+ * Recover the owner id from the props the login sealed into the grant.
+ *
+ * This is the second and last way an `OwnerId` comes into existence, and it is
+ * not a new one: `completeAuthorization` sealed exactly what `resolveOwner`
+ * minted, and the provider decrypted it from the grant the bearer token names.
+ * An id can therefore still only enter through an authenticated request -
+ * never from an argument, a header, or anything the sandbox passed.
+ */
+export const fromGrantProps = (props: unknown): Effect.Effect<OwnerId, GrantWithoutOwner> => {
+  const ownerId =
+    typeof props === "object" && props !== null ? (props as { readonly ownerId?: unknown }).ownerId : undefined;
+  return typeof ownerId === "string" && ownerId.startsWith("own_")
+    ? Effect.succeed(ownerId as OwnerId)
+    : Effect.fail(new GrantWithoutOwner({ message: "this grant carries no owner id. Authorize again to get one." }));
+};
+
 /** `github:12345`, the form used by both the allowlist and the mapping key. */
 const qualified = (identity: UpstreamIdentity) => `${identity.provider}:${identity.subject}`;
 

@@ -156,15 +156,16 @@ describe("the whole login", () => {
     expect(token.status).toBe(200);
     const granted = (await token.json()) as { access_token: string };
 
+    // The token opens the MCP surface itself, not a placeholder: the same
+    // request without it is the 401 the discovery test pins down.
     const authenticated = await manual(`${ORIGIN}/mcp`, {
-      headers: { authorization: `Bearer ${granted.access_token}` },
+      method: "POST",
+      headers: { authorization: `Bearer ${granted.access_token}`, "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
     });
-    const envelope = (await authenticated.json()) as { ok: boolean; value: { ownerId: string } };
 
     expect(authenticated.status).toBe(200);
-    expect(envelope.ok).toBe(true);
-    // The owner id comes from the authenticated request and from nowhere else.
-    expect(envelope.value.ownerId).toMatch(/^own_[0-9a-f-]{36}$/);
+    expect(await authenticated.json()).toStrictEqual({ jsonrpc: "2.0", id: 1, result: {} });
   });
 
   it("spends the pending authorization once", async () => {

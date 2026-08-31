@@ -9,10 +9,11 @@
  * there is no deployment-specific constant to keep in step with reality.
  */
 import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
-import { Data, Effect } from "effect";
+import { Data, Effect, Exit } from "effect";
 import * as Authorize from "./http/Authorize.ts";
-import type { Owner, Upstream } from "./identity/index.ts";
+import { Owner, type Upstream } from "./identity/index.ts";
 import { Envelope, type Failure } from "./kernel/index.ts";
+import * as Transport from "./mcp/Transport.ts";
 
 /**
  * Everything the request path is allowed to reach.
@@ -67,40 +68,60 @@ const defaultHandler = {
 /**
  * The MCP surface, reached only with a valid access token.
  *
- * A placeholder that answers with the owner id, which is the one thing worth
- * asserting before the tools exist: that the id comes from the authenticated
- * request and from nowhere else. `search` and `execute` replace this.
+ * The owner id comes from the props the login sealed into the grant, and from
+ * nowhere else. A grant without one is refused before any method dispatch, so
+ * no tool can ever run without knowing whose it is - which is the property the
+ * old placeholder existed to assert, kept here as the door check.
  */
 const apiHandler = {
-  async fetch(_request: Request, _bindings: Bindings, ctx: ExecutionContext): Promise<Response> {
-    const props = ctx.props as { ownerId?: string } | undefined;
-    return toResponse(Envelope.succeed({ ownerId: props?.ownerId ?? null }));
+  async fetch(request: Request, _bindings: Bindings, ctx: ExecutionContext): Promise<Response> {
+    const owner = await Effect.runPromise(Effect.exit(Owner.fromGrantProps(ctx.props)));
+    if (Exit.isFailure(owner)) {
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: null,
+          error: { code: -32600, message: "this grant carries no owner id. Authorize again to get one." },
+        }),
+        { status: 403, headers: { "content-type": "application/json" } },
+      );
+    }
+
+    // Tools are built here, at the door, per request: each handler is bound to
+    // this owner and these bindings, so the transport never sees either.
+    const tools: readonly Transport.ServedTool[] = [];
+
+    return Effect.runPromise(Transport.handle(request, tools));
   },
 } satisfies ExportedHandler<Bindings>;
 
 /**
- * Build the provider for this request.
+ * The provider's configuration for this request.
  *
  * `resourceMetadata.resource` pins both the grant and the access token's
  * audience to this exact resource, which is what stops a token minted for
  * something else being replayed here. It is derived from the request's origin
  * rather than configured, so it is right in every environment without anything
  * to keep in step.
+ *
+ * Exported so the tests about the MCP surface can mint tokens through
+ * `getOAuthApi` against this exact configuration rather than a look-alike.
  */
-const provider = (origin: string) =>
-  new OAuthProvider<Bindings>({
-    apiRoute: MCP_ROUTE,
-    apiHandler,
-    defaultHandler,
-    authorizeEndpoint: "/authorize",
-    tokenEndpoint: "/token",
-    // Story 3: a client registers itself rather than being provisioned by hand.
-    clientRegistrationEndpoint: "/register",
-    resourceMetadata: {
-      resource: `${origin}${MCP_ROUTE}`,
-      resource_name: "OPTI",
-    },
-  });
+export const providerOptions = (origin: string) => ({
+  apiRoute: MCP_ROUTE,
+  apiHandler,
+  defaultHandler,
+  authorizeEndpoint: "/authorize",
+  tokenEndpoint: "/token",
+  // Story 3: a client registers itself rather than being provisioned by hand.
+  clientRegistrationEndpoint: "/register",
+  resourceMetadata: {
+    resource: `${origin}${MCP_ROUTE}`,
+    resource_name: "OPTI",
+  },
+});
+
+const provider = (origin: string) => new OAuthProvider<Bindings>(providerOptions(origin));
 
 export default {
   fetch(request: Request, env: Bindings, ctx: ExecutionContext): Promise<Response> {
