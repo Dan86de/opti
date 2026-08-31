@@ -175,6 +175,103 @@ The credential never enters the isolate.
 The credential boundary.
 The only slice here where being wrong means a rewrite rather than an edit.
 
+**Decisions.**
+Taken on 2026-08-31, in the interview that opened the slice, and recorded here for the same reason as Slice 1's: a later reader should not have to re-derive them from the code.
+
+**Storage.**
+The first durable object arrives in this slice, not Slice 3: `OwnerVault`, one instance per owner, addressed by the owner id.
+It holds the credential store, the host policy and the daily counters as three modules with separate write paths.
+The alternative, KV until Slice 3, was declined because it buys a migration of the most security-sensitive data in the system and makes the done-when flaky through eventual consistency.
+`kentcdodds/kody` was read as reference here and stores secrets relationally, but it did so because it has cross-user reads - admin, billing, community - which is exactly the trigger this spec names for provisioning a relational store, and at one owner that trigger has not fired.
+A per-owner object is also the multi-user shape rather than a compromise on it: isolation is structural, and the relational store, when its trigger fires, arrives beside the vaults for cross-owner reads rather than replacing them.
+
+**The seam.**
+`globalOutbound` accepts only a Fetcher, so the gateway is a `Gateway` WorkerEntrypoint exported from the main module, and the runner passes `globalOutbound: ctx.exports.Gateway({ props: { ownerId, runId, origin } })` in place of `null`.
+Authority travels in props set by the host at isolate creation and never in anything the sandbox can write, the same rule as everywhere else.
+Once outbound is granted, the sandbox's global `fetch` works too; that is fine because the virtual module was never the boundary, and the gateway applies policy to every request however the sandbox spelled `fetch`.
+`opti:capabilities` still exports `fetch`, and the wrapper is not decorative; see the denial transport below.
+
+**The placeholder protocol.**
+`{{credential:name}}`, names matching `[a-z0-9._-]+`.
+Scanned uniformly across the URL, header values and a text body of the final serialized request, so a placeholder assembled by concatenation still resolves; it is a textual protocol, not an API.
+The order is scan, then policy, then substitute: every named credential must have the target host approved, the refusal happens before any network call, and a request naming two credentials needs the host approved for both.
+`UnknownCredential` and `HostNotApproved` are distinct failures because their fixes are different - save a credential versus approve a host - and only the latter carries the approval action.
+No escape hatch for sending a literal placeholder unresolved; the trigger to add one is the first run that genuinely needs to transmit the literal text.
+
+**Host matching.**
+An allowlist entry is an exact hostname, compared case-insensitively against the hostname of the final request; no scheme, no port, no path, and no wildcards.
+A wildcard is accumulation wearing a decision's paperwork, and approving a second host is one operator command.
+A placeholder-bearing request must be https on the default port or it is refused as `InsecureTransport`, whatever the allowlist says.
+The gateway does not follow redirects for credentialed requests; the redirect returns to the sandbox as data, because following it would let one approved host forward the credential to a second host nobody approved.
+
+**Saving a credential.**
+Terminal-only in this slice, on the same operator channel as approval, with the value read from stdin or an env var and never argv.
+Not an MCP tool and never relayed by the agent, because that routes the value through model context, chat logs and host history - the exact places the placeholder exists to keep it out of.
+No execution-side write path either; the trigger to add one is the first package that provably mints a token inside a run.
+When the agent hits `UnknownCredential` it stops and hands the human the command to run, the same stop-and-hand-over as approval.
+
+**The operator command.**
+Admin routes on the worker outside `/mcp` - approve a host, save a credential - called by a thin script, because there is no other way into a durable object from a laptop.
+Authenticated by an `OPERATOR_TOKEN` worker secret compared in constant time, deliberately not OAuth: the operator is not an MCP client, and separate routes under a separate token are what make approval structurally unreachable from every agent surface.
+The admin module is the sole importer of the host policy write path and the credential store's put, and the import-boundary test is written in this slice, the same day those modules exist.
+The routes address owners by qualified upstream identity (`github:12345`), resolved through the existing mapping, because that is the identifier the operator actually knows.
+The gateway refuses requests to the worker's own origin, so sandboxed code cannot even probe the admin routes or loop back into `/mcp`; the token check would hold, but refusing the class is cheaper than trusting the case.
+
+**The approval link.**
+`GET /approve?credential=NAME&host=HOST` renders the grant in plain words and the exact operator command to run; it writes nothing, reads nothing and needs no auth.
+The URL shape is the stable contract: when a web application eventually exists, the same URL starts performing the approval behind authentication, and every link in an old conversation keeps working.
+The page states the grant before the command, the same discipline as the authorize screen leading with the redirect origin, because whoever can provoke a denial can also craft this link.
+The denial message also names the credential and host in plain text, so the agent can relay the situation without anyone opening the link.
+
+**Encryption.**
+AES-256-GCM with a 12-byte random IV, the key derived per purpose from one `CREDENTIAL_KEY` worker secret, AAD `opti.v1|credential-store|owner:{ownerId}`.
+The AAD binds owner and purpose and deliberately not the credential name: the named threat is a ciphertext moved into another owner's place, and an attacker rearranging rows inside an owner's own vault is that owner.
+The ciphertext format is versioned from day one, `v1.<iv>.<ciphertext>` in base64url, because kody had to retrofit exactly this when it added AAD to existing rows.
+Encrypt and decrypt live inside the credential store module in the vault; storage holds only ciphertext and `list` returns only metadata.
+Plaintext is materialized only inside the gateway module - for substitution, and for the redaction scan - which is why the choke point is a module rather than a single function.
+
+**Stories 34 through 36.**
+They do not ship in this slice; they constrain it.
+One materialization choke point is story 35, policy-resolved-before-attach is story 34's ordering, and refresh-returns-metadata-only is a rule about a function that will not exist until the first OAuth integration does.
+That first integration is the named trigger to exercise all three.
+
+**Redaction.**
+Envelope-side, in the gateway module: before the envelope leaves the execute path, result, logs and failure messages are scanned for the owner's credential values, and each hit becomes `[redacted:name]`.
+Scanning all of the owner's values rather than tracking which ones a run touched keeps it stateless, and the surfaces are already serialized and bounded.
+Response-side scanning - scrubbing bodies before they enter the sandbox - was declined: it buffers and decodes every response to catch an API that echoes credentials, and it is recorded under accepted residuals as the closure if that residual ever matters.
+
+**Ceilings.**
+Counters live in the vault, bucketed by UTC day.
+Executions count at the door before the run boots; outbound requests count at the gateway, including denials, because a loop hammering denials is still a runaway.
+`ExecutionBudgetExhausted` and `FetchBudgetExhausted` are the first real uses of retry `after`, and the message names when the budget resets.
+The numbers arrive through bindings so tests trip real ceilings set to two; production defaults are 500 executions and 5,000 outbound fetches per day.
+No other ceiling - no per-run cap, no concurrency cap - because quotas beyond the runaway backstop are out of scope.
+
+**Denial transport.**
+A gateway denial returns as a synthetic response marked `x-opti-failure: 1`, with the full failure in the body: tag, message, retry, action.
+The `fetch` export in `opti:capabilities` checks the marker and throws the tagged error, which is what turns a denial into a throw the entry module already knows how to catch; raw global `fetch` still sees the marked response.
+The entry module, the report schema and the runner learn to carry `action` and `retry` through the boundary, because a boundary that flattens them deletes the approval link and the classification this slice exists to deliver.
+
+**Discovery.**
+The agent learns credential names from `search`: the detail response for `fetch` and the empty result both list the owner's saved credential names with their approved hosts - names and hosts only, never values.
+The moment of need is before code is written, which makes this a search-time answer and not a runtime capability; the trigger for a runtime `credentials.list()` is the first package that needs expiry awareness while running.
+Detail for `fetch` therefore becomes the one per-owner detail response; the slim list and `tools/list` stay static and stay under their ceiling.
+
+**Done when, concretely.**
+The credential is a Todoist API token named `todoist`, because Todoist is in the problem statement and authenticates with a plain bearer.
+Automated tests never touch Todoist: the listener double from the egress tests plays the API host, which is what lets the tests assert the request that never arrived and the value the isolate never saw.
+The deny-approve-succeed sequence runs end to end against the double, because approval is an admin route the tests can call with the operator token.
+The double proves the gateway, not that Todoist accepts the result; the real round trip is verified by hand, once, like Slice 1's authorize flow.
+
+**Build order inside the slice.**
+The seam test first: a worker test that sandbox fetch arrives at the gateway entrypoint with host-set props intact, that two runs do not bleed, and that nothing else reaches the network - then immediately a deployed probe of the same, because local and production have disagreed before.
+Then the pure logic in plain vitest: placeholder parsing, host matching, ciphertext round trip with the AAD negative.
+Then the vault, then the admin routes with the import-boundary test, then the gateway in full, then the wiring into runner, registry and search, then the end-to-end sequence against the double, then deploy and the by-hand done-when.
+
+**New failure tags.**
+`UnknownCredential`, `HostNotApproved`, `InsecureTransport`, `OwnOriginRefused`, `ExecutionBudgetExhausted`, `FetchBudgetExhausted`.
+All retry `never` except the budget pair, which are `after`, and only `HostNotApproved` carries an action.
+
 ### Slice 3: things that persist
 
 Run records for every execution, written to owner-local storage and never as a synchronous write on a relational hot path.
@@ -189,10 +286,10 @@ And a failure is debuggable from its run record alone, without adding a log line
 Discovery, run records, the source primitive, publish and activation, and that the loop closes.
 
 **Watch for.**
-This is the slice that introduces the first durable object, which is the moment the deployment-split trigger becomes live rather than theoretical.
+The first durable object arrived a slice early: Slice 2's owner vault, per the interview that opened that slice, so the deployment-split trigger is already live rather than theoretical.
 A deploy of the script that owns a durable object class restarts those objects.
 Stored data survives; in-memory state and in-flight requests do not.
-At one owner that is nearly free, so the trigger to act on is not a felt performance problem but the first durable object holding state whose restart is user-visible.
+The vault keeps nothing in memory, so at one owner that is nearly free, and the trigger to act stays what it was: not a felt performance problem but the first durable object holding state whose restart is user-visible.
 
 ## User Stories
 
@@ -368,7 +465,7 @@ Nothing in the execute path reaches a binding from module scope.
 Bindings arrive through an explicit interface passed in at the door.
 That single rule is what makes the eventual split into separate deployables a configuration change rather than surgery.
 
-Slice 3 introduces the first durable object, which is the moment the deployment-split trigger becomes live: a deploy of the script that owns a durable object class restarts those objects, and stored data survives while in-memory state and in-flight requests do not.
+Slice 2 introduces the first durable object, the owner vault, which is the moment the deployment-split trigger becomes live: a deploy of the script that owns a durable object class restarts those objects, and stored data survives while in-memory state and in-flight requests do not.
 
 ## Testing Decisions
 
@@ -471,6 +568,12 @@ Slice 1 needs none, so the question is deferred rather than answered, and the tr
 There is no general SSRF denylist on sandbox fetch.
 Credential-bearing requests are constrained by per-credential host allowlists; requests carrying no credential rely on the platform egress model.
 Adopted consciously so that a protection nobody built is not later assumed to exist.
+
+A third-party response can echo a credential back into the sandbox, and a credential-less fetch can then carry it anywhere, because responses are not scanned on the way in.
+Envelope-side redaction catches what comes home to model context; response-side scanning is the closure if this residual ever matters, and it was declined because it buffers and decodes every response to catch an API that echoes credentials.
+
+The redaction scan catches raw values only.
+A derived encoding, such as base64 of user:pass in a Basic header, slips past it; the trigger for an opaque header helper is the first credential actually used that way.
 
 ### Open questions carried forward
 
