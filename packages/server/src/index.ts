@@ -7,15 +7,22 @@
  * change rather than surgery. Keep it that way.
  */
 import { Data, Effect } from "effect";
+import type { Owner, Upstream } from "./identity/index.ts";
 import { Envelope, type Failure } from "./kernel/index.ts";
 
 /**
- * Everything the request path is allowed to reach. Today it is empty. It grows
- * as bindings arrive (the worker loader, storage, the gateway), and it stays
- * the only way any of them are reached.
+ * Everything the request path is allowed to reach.
+ *
+ * Composed from what each module declares it needs rather than written out
+ * here, so a module's requirements are stated next to the code that has them
+ * and this stays a list of who is at the door.
+ *
+ * Not yet in `wrangler.jsonc`: the identity bindings have no production
+ * counterpart until the GitHub application and the KV namespace exist. Nothing
+ * in the request path reads them yet, and wiring them in waits on the config
+ * catching up.
  */
-// biome-ignore lint/suspicious/noEmptyInterface: the empty binding set is the point; it grows in slice 1.
-export interface Bindings {}
+export interface Bindings extends Upstream.UpstreamBindings, Owner.OwnerBindings {}
 
 export class NoSuchRoute extends Data.TaggedError("NoSuchRoute")<{
   readonly message: string;
