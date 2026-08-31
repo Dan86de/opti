@@ -90,6 +90,23 @@ const qualified = (identity: UpstreamIdentity) => `${identity.provider}:${identi
 
 const mappingKey = (identity: UpstreamIdentity) => `identity:${qualified(identity)}`;
 
+/**
+ * Look up the owner an already-qualified identity maps to, without minting.
+ *
+ * This exists for the operator surface, which addresses owners by
+ * `github:12345` because that is the identifier the operator actually knows.
+ * It reads the same mapping the login writes and deliberately cannot create
+ * one: an owner only ever comes into existence through a login.
+ */
+export const lookupOwner = (
+  bindings: Pick<OwnerBindings, "OAUTH_KV">,
+  qualifiedIdentity: string,
+): Effect.Effect<OwnerId | null, OwnerStoreUnavailable> =>
+  Effect.tryPromise({
+    try: () => bindings.OAUTH_KV.get(`identity:${qualifiedIdentity}`),
+    catch: (cause) => new OwnerStoreUnavailable({ message: `could not read the identity mapping: ${String(cause)}` }),
+  }).pipe(Effect.map((existing) => (existing === null ? null : (existing as OwnerId))));
+
 const allowlisted = (allowlist: string, identity: UpstreamIdentity) =>
   allowlist
     .split(",")

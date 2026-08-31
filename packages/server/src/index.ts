@@ -10,7 +10,9 @@
  */
 import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import { Data, Effect, Exit } from "effect";
+import * as Admin from "./admin/Admin.ts";
 import * as Search from "./discovery/Search.ts";
+import * as Approve from "./http/Approve.ts";
 import * as Authorize from "./http/Authorize.ts";
 import { Owner, type Upstream } from "./identity/index.ts";
 import { Envelope, type Failure } from "./kernel/index.ts";
@@ -38,7 +40,8 @@ export interface Bindings
   extends Upstream.UpstreamBindings,
     Owner.OwnerBindings,
     Authorize.AuthorizeBindings,
-    Runner.RunnerBindings {}
+    Runner.RunnerBindings,
+    Admin.AdminBindings {}
 
 /** Where the MCP surface will live. Everything under it needs a valid token. */
 const MCP_ROUTE = "/mcp";
@@ -64,6 +67,18 @@ const defaultHandler = {
     const browserResponse = await Effect.runPromise(Authorize.handle(request, bindings));
     if (browserResponse !== null) {
       return browserResponse;
+    }
+
+    // The approval link's landing page: reads nothing, writes nothing.
+    const approvePage = Approve.handle(request);
+    if (approvePage !== null) {
+      return approvePage;
+    }
+
+    // The operator surface, under its own token and never under OAuth.
+    const adminResponse = await Effect.runPromise(Admin.handle(request, bindings));
+    if (adminResponse !== null) {
+      return adminResponse;
     }
 
     const exit = await Effect.runPromise(

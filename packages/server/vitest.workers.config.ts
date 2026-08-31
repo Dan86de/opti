@@ -33,6 +33,8 @@ export default defineProject({
           OWNER_ALLOWLIST: "github:4242, github:4243",
           // The vault's cipher secret, a worker secret in production.
           CREDENTIAL_KEY: "test-credential-key-with-enough-entropy",
+          // The operator's token, a worker secret in production.
+          OPERATOR_TOKEN: "test-operator-token",
           // Overridden down so the timeout test waits two seconds, not ten.
           // The hung run it abandons idles on a promise rather than burning
           // CPU, which under miniflare would crash workerd (the recorded
