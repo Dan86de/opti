@@ -19,3 +19,6 @@ export const UPSTREAM_CLIENT_SECRET = "test-client-secret";
  * down. Tests therefore never share mutable state with each other.
  */
 export const authorizationCode = (subject: string, login: string) => `code:${subject}:${login}`;
+
+/** Who the doubled upstream is always already signed in as. */
+export const SIGNED_IN = { subject: "4242", login: "allowlisted-owner" };

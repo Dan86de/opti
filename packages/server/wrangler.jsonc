@@ -11,5 +11,25 @@
   // The isolate. Worker Loader is open beta on the paid plan and is the most
   // load-bearing dependency in the system, which is why it is a recorded bet
   // with its own revisit trigger rather than an assumption.
-  "worker_loaders": [{ "binding": "LOADER" }]
+  "worker_loaders": [{ "binding": "LOADER" }],
+
+  // The upstream login's public endpoints. Vars rather than secrets because
+  // they are neither: they are the two GitHub origins, and having them arrive
+  // through the door is what lets a doubled upstream be reached the same way
+  // the real one is, with no test-only branch in the deployed worker.
+  "vars": {
+    "GITHUB_ORIGIN": "https://github.com",
+    "GITHUB_API_ORIGIN": "https://api.github.com"
+  },
+
+  // Pre-authentication state: the OAuth provider's own grant state, and the
+  // mapping from an upstream identity to an owner id. Both are keyed by
+  // something other than the owner because the grant is how the owner is
+  // learned, which is the exception the spec carves out by name.
+  "kv_namespaces": [
+    {
+      "binding": "OAUTH_KV",
+      "id": "431d14eada56489b9602cf650efed706"
+    }
+  ]
 }

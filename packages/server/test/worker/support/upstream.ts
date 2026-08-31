@@ -17,7 +17,14 @@
  * - `/user` requires a `user-agent`, and refuses the request without one.
  */
 import http from "node:http";
-import { UPSTREAM_CLIENT_ID, UPSTREAM_CLIENT_SECRET, UPSTREAM_HOST, UPSTREAM_PORT } from "./upstream-address.ts";
+import {
+  authorizationCode,
+  SIGNED_IN,
+  UPSTREAM_CLIENT_ID,
+  UPSTREAM_CLIENT_SECRET,
+  UPSTREAM_HOST,
+  UPSTREAM_PORT,
+} from "./upstream-address.ts";
 
 const json = (response: http.ServerResponse, status: number, body: unknown) => {
   const encoded = JSON.stringify(body);
@@ -51,6 +58,19 @@ export default async function startUpstream() {
         return json(response, 200, { error: "bad_verification_code" });
       }
       return json(response, 200, { access_token: accessTokenFor(code), token_type: "bearer", scope: "" });
+    }
+
+    // The browser leg. A real GitHub would show a login screen here; the double
+    // is always already logged in as one fixed user, so the happy path can be
+    // driven by following redirects. Any other user is reached by calling our
+    // callback directly with a code the test writes itself.
+    if (request.method === "GET" && url.pathname === "/login/oauth/authorize") {
+      const back = new URL(url.searchParams.get("redirect_uri") ?? "");
+      back.searchParams.set("code", authorizationCode(SIGNED_IN.subject, SIGNED_IN.login));
+      back.searchParams.set("state", url.searchParams.get("state") ?? "");
+      response.writeHead(302, { location: back.toString() });
+      response.end();
+      return;
     }
 
     if (request.method === "GET" && url.pathname === "/user") {
