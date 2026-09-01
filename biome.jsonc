@@ -46,6 +46,20 @@
       "quoteStyle": "double"
     }
   },
+  "overrides": [
+    {
+      // The vault container's stdout IS its log sink: docker logs locally,
+      // Cloudflare's container logs in production. console is the API there.
+      "includes": ["packages/vault-container/**"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
+          }
+        }
+      }
+    }
+  ],
   "assist": {
     "enabled": true,
     "actions": {

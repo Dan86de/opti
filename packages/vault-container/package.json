@@ -1,0 +1,7 @@
+{
+  "name": "@opti/vault-container",
+  "private": true,
+  "version": "0.0.0",
+  "description": "The vault container: obsidian-headless syncing the owner's vault, fronted by the file API the gateway's vault route calls.",
+  "type": "module"
+}
