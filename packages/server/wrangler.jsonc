@@ -73,7 +73,7 @@
     // default: empty refuses every write; reads are vault-wide. Widening
     // this is the owner's deliberate config change, the host allowlist's
     // own discipline.
-    "VAULT_WRITE_PREFIXES": "10 Content Engine/"
+    "VAULT_WRITE_PREFIXES": "10 Content Engine/, 00 Journal/, 03 Reading Books Wiki/, 04 AI Workflow Architect Wiki/, 07 Vaillant IDP Dry Run/"
   },
 
   // Pre-authentication state: the OAuth provider's own grant state, and the
