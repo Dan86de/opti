@@ -28,6 +28,9 @@ import { vaultFor } from "./vault/OwnerVault.ts";
 // WorkerEntrypoint on the main module, reached through `ctx.exports` with
 // props the host seals at isolate creation.
 export { Gateway } from "./gateway/Gateway.ts";
+// The vault container: the owner's Obsidian vault behind its file API,
+// reached only through the gateway's vault route.
+export { VaultContainer } from "./gateway/VaultContainer.ts";
 // The owner store, one per owner: run records, package state, storage data.
 export { OwnerStore } from "./store/OwnerStore.ts";
 // The owner vault, one per owner: credentials, host policy, daily counters.

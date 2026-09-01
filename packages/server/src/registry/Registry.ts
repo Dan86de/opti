@@ -192,6 +192,48 @@ export const runsCapability: Capability = {
   code: RUNS_CODE,
 };
 
+const VAULT_CODE = `${internalCall("vaultCall")}
+export const vault = {
+  read: (path) => vaultCall("/vault/read", { path }),
+  write: (path, content) => vaultCall("/vault/write", { path, content }),
+  list: (folder) => vaultCall("/vault/list", folder === undefined ? {} : { folder }),
+  search: (query) => vaultCall("/vault/search", { query }),
+};`;
+
+export const vaultCapability: Capability = {
+  kind: "capability",
+  name: "vault",
+  summary:
+    "The owner's Obsidian vault, live. Read, list and search anywhere; write only under the owner-approved folders. Paths are vault-relative, spelled exactly as Obsidian spells them.",
+  signature:
+    "vault: { read(path: string): Promise<{ path: string; content: string; syncedAt: string | null }>; " +
+    "write(path: string, content: string): Promise<{ path: string; bytes: number }>; " +
+    "list(folder?: string): Promise<{ paths: string[]; truncated?: string }>; " +
+    "search(query: string): Promise<{ hits: { path: string; snippet: string }[]; truncated?: string }> }",
+  importLine: 'import { vault } from "opti:capabilities";',
+  errorTags: ["NoSuchNote", "InvalidVaultPath", "VaultWriteRefused", "VaultUnavailable", "FetchBudgetExhausted"],
+  example: {
+    code:
+      'import { vault } from "opti:capabilities";\n' +
+      "\n" +
+      "export default async () => {\n" +
+      "  try {\n" +
+      '    const note = await vault.read("10 Content Engine/00 Index.md");\n' +
+      "    return { found: note.path };\n" +
+      "  } catch (failure) {\n" +
+      "    // NoSuchNote until the index exists. A write outside the approved\n" +
+      "    // folders is refused the same way, as VaultWriteRefused; neither\n" +
+      "    // is worth retrying.\n" +
+      "    return { stopped: failure._tag };\n" +
+      "  }\n" +
+      "};\n",
+    // What this exact module returns before the index note exists, which is
+    // the vault's fresh state - the fetch example's own convention.
+    result: { stopped: "NoSuchNote" },
+  },
+  code: VAULT_CODE,
+};
+
 export const add: Capability = {
   kind: "capability",
   name: "add",
@@ -208,7 +250,13 @@ export const add: Capability = {
 
 /** Every owner sees the built-ins; their published packages arrive beside
  * these, resolved per owner from the owner store. */
-export const builtIns: readonly Capability[] = [add, fetchCapability, storageCapability, runsCapability];
+export const builtIns: readonly Capability[] = [
+  add,
+  fetchCapability,
+  storageCapability,
+  runsCapability,
+  vaultCapability,
+];
 
 /**
  * A published package as discovery sees it. The kind tag maps one-to-one to

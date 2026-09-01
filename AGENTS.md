@@ -76,6 +76,9 @@ The deploy needs two repository secrets, `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_
 
 The deployed worker itself carries secrets set once with `wrangler secret put`, never through CI: `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` and `OWNER_ALLOWLIST` from Slice 1, and since Slice 2 `OPERATOR_TOKEN` (the admin routes) and `CREDENTIAL_KEY` (the vault cipher).
 A deploy without the Slice 2 pair fails closed: the admin routes refuse everything, and the vault cannot decrypt.
+The vault slice adds `OBSIDIAN_AUTH_TOKEN` and `OBSIDIAN_SYNC_CONFIG` (the per-vault sync config carrying the *derived* encryption key - the owner's end-to-end password never exists on Cloudflare), which cross into the vault container as environment variables.
+Without them the container boots, fails secret installation loudly, and every vault call returns `VaultUnavailable`; nothing else is affected.
+A deploy also builds the vault container image now, so the deploying environment needs Docker; CI's runners have it, and `--containers-rollout=none` deploys the worker without touching the container.
 
 `wrangler deploy` from a laptop is for checking something, not for shipping.
 If a deploy did not come from `main`, the running code is not the code anyone can read.

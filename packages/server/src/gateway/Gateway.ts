@@ -33,6 +33,8 @@ import {
 import { exemptFromSecureTransport, isSecureTransport } from "./Hosts.ts";
 import { handleInternal, INTERNAL_HOST, type Routed } from "./Internal.ts";
 import { scan, substitute } from "./Placeholder.ts";
+import type { VaultContainer } from "./VaultContainer.ts";
+import { handleVault, type VaultBackend } from "./VaultRoute.ts";
 
 /**
  * What the host seals into the seam at isolate creation. Everything the
@@ -48,10 +50,24 @@ export interface GatewayProps {
 export interface GatewayBindings {
   readonly OWNER_VAULT: DurableObjectNamespace<OwnerVault>;
   readonly OWNER_STORE: DurableObjectNamespace<OwnerStore>;
+  /** The vault container: the owner's Obsidian vault behind its file API. */
+  readonly VAULT_CONTAINER: DurableObjectNamespace<VaultContainer>;
   /** The daily outbound ceiling, through the door like every number. */
   readonly FETCH_BUDGET: string;
   /** Hosts exempt from the https rule. Empty in production, always. */
   readonly GATEWAY_INSECURE_HOSTS: string;
+  /**
+   * Where the vault API lives when it is not the container: the tests point
+   * this at the loopback double, because the pool cannot run a container.
+   * Empty in production, always - the same discipline as
+   * GATEWAY_INSECURE_HOSTS, and an entry appearing there is the same alarm.
+   */
+  readonly VAULT_ORIGIN: string;
+  /**
+   * The vault folders sandbox code may write, comma-separated. Deny by
+   * default: empty refuses every write. Reads are vault-wide.
+   */
+  readonly VAULT_WRITE_PREFIXES: string;
 }
 
 /**
@@ -119,6 +135,20 @@ export class Gateway extends WorkerEntrypoint<GatewayBindings, GatewayProps> {
     return response;
   }
 
+  /**
+   * The vault backend, resolved from the bindings at the door: the container
+   * stub in production, the loopback double when `VAULT_ORIGIN` points at
+   * one. The route cannot tell the difference, which is the point.
+   */
+  private vaultBackend(): VaultBackend {
+    const origin = this.env.VAULT_ORIGIN;
+    if (origin !== "") {
+      return (path, init) => fetch(`${origin}${path}`, init);
+    }
+    const stub = this.env.VAULT_CONTAINER.get(this.env.VAULT_CONTAINER.idFromName("vault"));
+    return (path, init) => stub.fetch(new Request(`http://${INTERNAL_HOST}${path}`, init));
+  }
+
   private async route(request: Request): Promise<Routed> {
     const { ownerId, origin } = this.ctx.props;
     const vault = vaultFor(this.env.OWNER_VAULT, ownerId);
@@ -133,11 +163,14 @@ export class Gateway extends WorkerEntrypoint<GatewayBindings, GatewayProps> {
 
     const target = new URL(request.url);
 
-    // The reserved hostname: a storage or runs call, routed to the owner's
-    // store instead of the network. Before the placeholder scan on purpose:
-    // a stored value containing placeholder text is data, never a request
-    // for substitution.
+    // The reserved hostname: a storage, runs or vault call, routed to the
+    // owner's backends instead of the network. Before the placeholder scan
+    // on purpose: a stored value containing placeholder text is data, never
+    // a request for substitution.
     if (target.hostname.toLowerCase() === INTERNAL_HOST) {
+      if (target.pathname.startsWith("/vault/")) {
+        return handleVault(this.vaultBackend(), this.env.VAULT_WRITE_PREFIXES, request, target.pathname);
+      }
       return handleInternal(storeFor(this.env.OWNER_STORE, ownerId), request, target.pathname);
     }
 

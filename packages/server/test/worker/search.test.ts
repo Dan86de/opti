@@ -51,6 +51,7 @@ describe("search", () => {
           },
           { kind: "capability", name: "runs" },
           { kind: "capability", name: "storage" },
+          { kind: "capability", name: "vault" },
         ],
       },
     });

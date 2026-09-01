@@ -25,6 +25,15 @@
  * - `GET /redirect` answers 301 toward `/probe`, so a test can prove the
  *   gateway hands a credentialed redirect back as data instead of following
  *   it: if anything follows, the extra probe shows up in the count.
+ *
+ * Since the vault slice it also plays the vault container, because the test
+ * pool parses the containers block but never runs one - `VAULT_ORIGIN`
+ * points here instead. The shortcut this double takes: it answers from
+ * fixtures rather than a filesystem, and `/read` knows exactly one note,
+ * `10 Content Engine/existing.md`, so every other path 404s the way the
+ * real container 404s a missing file. These probes count like any other,
+ * which is what lets a refused write be asserted as "the container was
+ * never reached" from the wire side.
  */
 import net from "node:net";
 import { LISTENER_HOST, LISTENER_PORT } from "./listener-address.ts";
@@ -55,6 +64,33 @@ export default async function startListener() {
       lastProbe = head;
       if (/^[A-Z]+ \/echo/.test(head)) {
         socket.end(http(head));
+        return;
+      }
+      if (/^[A-Z]+ \/(read|write|list|search)[ ?]/.test(head)) {
+        const jsonHttp = (status: string, body: string) =>
+          `HTTP/1.1 ${status}\r\ncontent-type: application/json\r\ncontent-length: ${Buffer.byteLength(body)}\r\nconnection: close\r\n\r\n${body}`;
+        if (head.startsWith("GET /read")) {
+          // One knowable note; everything else is the container's own 404.
+          const target = decodeURIComponent(/^GET \/read\?path=([^ ]*)/.exec(head)?.[1] ?? "");
+          socket.end(
+            target === "10 Content Engine/existing.md"
+              ? jsonHttp(
+                  "200 OK",
+                  JSON.stringify({ path: target, content: "# Existing\n", syncedAt: "2026-09-01T00:00:00.000Z" }),
+                )
+              : jsonHttp("404 Not Found", '{"error":"no such note"}'),
+          );
+          return;
+        }
+        if (head.startsWith("POST /write")) {
+          socket.end(jsonHttp("200 OK", '{"path":"double","bytes":0}'));
+          return;
+        }
+        if (head.startsWith("GET /list")) {
+          socket.end(jsonHttp("200 OK", '{"paths":["10 Content Engine/existing.md"]}'));
+          return;
+        }
+        socket.end(jsonHttp("200 OK", '{"hits":[{"path":"10 Content Engine/existing.md","snippet":"# Existing"}]}'));
         return;
       }
       if (head.startsWith("GET /redirect-evil")) {

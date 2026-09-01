@@ -63,7 +63,17 @@
     // Empty in production, always: the tests point this at the loopback
     // listener because no local double can ever be https on port 443. An
     // entry appearing here is an alarm, not a feature.
-    "GATEWAY_INSECURE_HOSTS": ""
+    "GATEWAY_INSECURE_HOSTS": "",
+    // Where the vault API lives when it is not the container: the tests
+    // point this at the loopback double because the pool cannot run a
+    // container. Empty in production, always - the same discipline and the
+    // same alarm as GATEWAY_INSECURE_HOSTS.
+    "VAULT_ORIGIN": "",
+    // The vault folders sandbox code may write, comma-separated. Deny by
+    // default: empty refuses every write; reads are vault-wide. Widening
+    // this is the owner's deliberate config change, the host allowlist's
+    // own discipline.
+    "VAULT_WRITE_PREFIXES": "10 Content Engine/"
   },
 
   // Pre-authentication state: the OAuth provider's own grant state, and the
@@ -85,11 +95,32 @@
   "durable_objects": {
     "bindings": [
       { "name": "OWNER_VAULT", "class_name": "OwnerVault" },
-      { "name": "OWNER_STORE", "class_name": "OwnerStore" }
+      { "name": "OWNER_STORE", "class_name": "OwnerStore" },
+      { "name": "VAULT_CONTAINER", "class_name": "VaultContainer" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["OwnerVault"] },
-    { "tag": "v2", "new_sqlite_classes": ["OwnerStore"] }
+    { "tag": "v2", "new_sqlite_classes": ["OwnerStore"] },
+    { "tag": "v3", "new_sqlite_classes": ["VaultContainer"] }
+  ],
+
+  // The vault container: obsidian-headless holding the owner's vault in
+  // continuous sync, fronted by the file API the gateway's vault route
+  // calls. One instance - one owner, one vault. `basic` is a deliberate
+  // spend: the owner chose warm over cheap, against the VM this replaces.
+  // The image needs two secrets set once with `wrangler secret put`, never
+  // through CI: OBSIDIAN_AUTH_TOKEN and OBSIDIAN_SYNC_CONFIG (the per-vault
+  // sync config carrying the derived encryption key - the end-to-end
+  // password itself never exists on Cloudflare).
+  // The vitest pool parses this block but never enacts it, so worker tests
+  // need no Docker; they reach the double through VAULT_ORIGIN instead.
+  "containers": [
+    {
+      "class_name": "VaultContainer",
+      "image": "../vault-container/Dockerfile",
+      "instance_type": "basic",
+      "max_instances": 1
+    }
   ]
 }

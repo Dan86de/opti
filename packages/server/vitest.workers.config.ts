@@ -1,5 +1,6 @@
 import { cloudflareTest } from "@cloudflare/vitest-plugin";
 import { defineProject } from "vitest/config";
+import { LISTENER_ORIGIN } from "./test/worker/support/listener-address.ts";
 import { UPSTREAM_CLIENT_ID, UPSTREAM_CLIENT_SECRET, UPSTREAM_ORIGIN } from "./test/worker/support/upstream-address.ts";
 
 /**
@@ -63,6 +64,15 @@ export default defineProject({
           // The https-only exemption for the loopback listener; see the
           // comment in wrangler.jsonc. Production pins this empty.
           GATEWAY_INSECURE_HOSTS: "127.0.0.1",
+          // The vault backend, pointed at the listener double: the pool
+          // parses the containers block but never runs one, so a test that
+          // reached the real container would hang, not prove. The double
+          // answers with container-shaped JSON; the shortcut this takes is
+          // written at the vault tests. Production pins this empty.
+          VAULT_ORIGIN: LISTENER_ORIGIN,
+          // Narrower than production on purpose so the refusal tests name
+          // their own folder rather than depending on the production value.
+          VAULT_WRITE_PREFIXES: "10 Content Engine/",
         },
       },
     }),
