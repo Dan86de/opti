@@ -20,3 +20,6 @@ coverage/
 
 # NOTE: repos/ is deliberately NOT ignored. Vendored subtrees are committed on
 # purpose so that a fresh clone gives a coding agent the reference source.
+
+# verify runs: one folder per run, evidence included
+.scratch/

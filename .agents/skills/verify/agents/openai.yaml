@@ -1,0 +1,6 @@
+interface:
+  display_name: "Verify"
+  short_description: "Start OPTI locally, drive it, record evidence"
+
+policy:
+  allow_implicit_invocation: true

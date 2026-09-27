@@ -65,6 +65,14 @@ Two runners, and putting a test in the wrong one means it proved less than it lo
 Local development attaches every binding for real, including the loader and the gateway.
 Write down every shortcut a non-production run takes, at the test, so the difference between local and production is visible rather than assumed.
 
+## Verifying in the running product
+
+Tests prove the parts; the `verify` skill (`.agents/skills/verify/`) proves the product, by starting an isolated local OPTI and driving it the way an MCP host and the operator do.
+What it checks is the feature map in `docs/manual/`, which is also the owner's own checklist of what OPTI does.
+
+A change the map describes is not done until a verify run produced an `evidence.md` with no failed check.
+The map changes in the same PR as the behaviour: a check that now reads differently because the change meant it is `manual`, and the map is fixed alongside.
+
 ## Deploying
 
 Local and production only, and one deployable through slice 3.
