@@ -44,9 +44,14 @@ const readBody = (request: http.IncomingMessage) =>
 /** The token is derived from the code, so the double holds no session state. */
 const accessTokenFor = (code: string) => code.replace(/^code:/, "token:");
 
-export default async function startUpstream() {
+/**
+ * The double on a port of the caller's choosing, so a verify run can keep its
+ * own GitHub beside another run or beside the worker tests. The tests keep
+ * the fixed port below; nothing about the double's answers depends on it.
+ */
+export async function serveUpstream(port: number) {
   const server = http.createServer(async (request, response) => {
-    const url = new URL(request.url ?? "/", `http://${UPSTREAM_HOST}:${UPSTREAM_PORT}`);
+    const url = new URL(request.url ?? "/", `http://${UPSTREAM_HOST}:${port}`);
 
     if (request.method === "POST" && url.pathname === "/login/oauth/access_token") {
       const form = new URLSearchParams(await readBody(request));
@@ -92,13 +97,17 @@ export default async function startUpstream() {
     server.once("error", (cause: Error) =>
       reject(
         new Error(
-          `the doubled upstream could not bind ${UPSTREAM_HOST}:${UPSTREAM_PORT} (${cause.message}). ` +
+          `the doubled upstream could not bind ${UPSTREAM_HOST}:${port} (${cause.message}). ` +
             "Free the port or change it in upstream-address.ts.",
         ),
       ),
     );
-    server.listen(UPSTREAM_PORT, UPSTREAM_HOST, resolve);
+    server.listen(port, UPSTREAM_HOST, resolve);
   });
 
   return () => new Promise<void>((resolve) => server.close(() => resolve()));
+}
+
+export default function startUpstream() {
+  return serveUpstream(UPSTREAM_PORT);
 }
