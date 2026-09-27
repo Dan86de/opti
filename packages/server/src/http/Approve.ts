@@ -22,8 +22,9 @@ const page = (title: string, main: string, status: number) =>
     `<!doctype html><html lang="en"><head><meta charset="utf-8">` +
       `<meta name="viewport" content="width=device-width, initial-scale=1">` +
       `<title>${escapeHtml(title)}</title>` +
-      `<style>body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;` +
-      `font:15px/1.55 ui-sans-serif,system-ui,-apple-system,sans-serif;color-scheme:light dark}` +
+      `<style>:root{color-scheme:light dark}` +
+      `body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;` +
+      `background:Canvas;color:CanvasText;font:15px/1.55 ui-sans-serif,system-ui,-apple-system,sans-serif}` +
       `main{max-width:36rem}h1{font-size:1.15rem;margin:0 0 8px}p{margin:0 0 12px}` +
       `pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85rem;` +
       `padding:12px;border:1px solid color-mix(in srgb,currentColor 25%,transparent);` +

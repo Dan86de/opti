@@ -65,8 +65,9 @@ const problemPage = (failure: Failure.Failure, status: number) =>
     `<!doctype html><html lang="en"><head><meta charset="utf-8">` +
       `<meta name="viewport" content="width=device-width, initial-scale=1">` +
       `<title>Could not sign you in</title>` +
-      `<style>body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;` +
-      `font:15px/1.55 ui-sans-serif,system-ui,-apple-system,sans-serif;color-scheme:light dark}` +
+      `<style>:root{color-scheme:light dark}` +
+      `body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;` +
+      `background:Canvas;color:CanvasText;font:15px/1.55 ui-sans-serif,system-ui,-apple-system,sans-serif}` +
       `main{max-width:27rem}h1{font-size:1.15rem;margin:0 0 8px}` +
       `p{margin:0 0 12px}code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;opacity:.7}</style>` +
       `</head><body><main><h1>Could not sign you in</h1><p>${escapeHtml(failure.message)}</p>` +
