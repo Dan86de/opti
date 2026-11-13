@@ -82,6 +82,63 @@ describe("initialize", () => {
   });
 });
 
+describe("protocol revisions", () => {
+  const rpcAt = (accessToken: string, version: string, body: unknown) =>
+    SELF.fetch(`${ORIGIN}/mcp`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        "mcp-protocol-version": version,
+      },
+      body: JSON.stringify(body),
+    });
+
+  it.each(["2025-11-25", "2025-06-18", "2025-03-26"])(
+    "serves a host that states %s on every request, initialize included",
+    async (version) => {
+      // A current host sends the header on initialize too. Refusing it there
+      // is what left claude.ai's connector with no tools rather than an error.
+      const { accessToken } = await mintAccessToken();
+
+      const initialized = await rpcAt(accessToken, version, {
+        ...initialize(),
+        params: { ...initialize().params, protocolVersion: version },
+      });
+      const listed = await rpcAt(accessToken, version, { jsonrpc: "2.0", id: 2, method: "tools/list" });
+
+      expect(initialized.status).toBe(200);
+      expect(await initialized.json()).toMatchObject({ result: { protocolVersion: version } });
+      expect(listed.status).toBe(200);
+      const { result } = (await listed.json()) as { result: { tools: { name: string }[] } };
+      expect(result.tools.map((tool) => tool.name)).toStrictEqual(["search", "execute", "packages"]);
+    },
+  );
+
+  it("offers the newest revision to a host that asks for one it does not know", async () => {
+    const { accessToken } = await mintAccessToken();
+
+    const response = await rpc(accessToken, {
+      ...initialize(),
+      params: { ...initialize().params, protocolVersion: "2099-01-01" },
+    });
+
+    expect(await response.json()).toMatchObject({ result: { protocolVersion: "2025-11-25" } });
+  });
+
+  it("refuses a stated revision it does not speak, and lists no tools under it", async () => {
+    const { accessToken } = await mintAccessToken();
+
+    const response = await rpcAt(accessToken, "2099-01-01", { jsonrpc: "2.0", id: 2, method: "tools/list" });
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({ jsonrpc: "2.0", id: null, error: { code: -32600 } });
+    expect(body).not.toHaveProperty("result");
+  });
+});
+
 describe("notifications", () => {
   it("acknowledges notifications/initialized with 202 and no body", async () => {
     const { accessToken } = await mintAccessToken();

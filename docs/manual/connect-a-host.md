@@ -28,8 +28,8 @@ The owner points an MCP host at OPTI, approves it once on a consent screen, sign
   The card is readable in both, the address sits above the client's name, and nothing overflows.
   It no longer shows the first-time notice, because the login already approved this client; that is expected.
   Do not press the button: `verify login` already has.
-- **Initialize.** Run `verify mcp <run> initialize '{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"verify host","version":"1"}}'`.
-  HTTP 200 with `"protocolVersion": "2025-06-18"`, `"capabilities": {"tools": {}}` and `"serverInfo": {"name": "opti", "title": "OPTI", "version": "0.1.0"}`.
+- **Initialize.** Run `verify mcp <run> initialize '{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"verify host","version":"1"}}'`.
+  HTTP 200 with `"protocolVersion": "2025-11-25"`, `"capabilities": {"tools": {}}` and `"serverInfo": {"name": "opti", "title": "OPTI", "version": "0.1.0"}`.
 - **Exactly three tools.** Run `verify mcp <run> tools/list`.
   HTTP 200 with three tools, in order `search`, `execute`, `packages`, and no others.
 - **A bad sign-in shows a page, not JSON.** In the browser pane, open `<origin>/callback/github?state=nope&code=x`.
