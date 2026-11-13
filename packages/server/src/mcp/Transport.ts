@@ -26,10 +26,16 @@ import { Envelope, type Failure } from "../kernel/index.ts";
 /**
  * The protocol revisions this transport can answer in. Order matters: the
  * first entry is what a client that asks for something unknown is offered.
- * Nothing OPTI serves differs between the two; both are listed so a host on
- * either side of the 2025-06-18 line connects without a downgrade dance.
+ * Nothing OPTI serves differs between them; all are listed so a host on any
+ * of these revisions connects without a downgrade dance.
+ *
+ * A host stating a revision missing from this list is refused with a 400
+ * before dispatch, initialize included, so falling behind the current
+ * revision is not a graceful downgrade: it is a connector that lists no
+ * tools. claude.ai showed exactly that on 2026-11-13 while it spoke
+ * 2025-11-25 and this list stopped at 2025-06-18.
  */
-const SUPPORTED_PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26"];
+const SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 
 const SERVER_INFO = { name: "opti", title: "OPTI", version: "0.1.0" };
 

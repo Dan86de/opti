@@ -39,7 +39,7 @@ const RUN_SECRETS = {
 };
 
 const REDIRECT_URI = "http://127.0.0.1:1/verify-host/callback";
-const MCP_PROTOCOL = "2025-06-18";
+const MCP_PROTOCOL = "2025-11-25";
 
 // ---------------------------------------------------------------- output
 
